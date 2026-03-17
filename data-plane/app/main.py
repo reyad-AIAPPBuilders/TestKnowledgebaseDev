@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     chunker = Chunker()
     app.state.ingest = IngestService(chunker, classifier, embedder, qdrant, contextual_enricher)
     app.state.online_ingest = IngestService(chunker, classifier, openai_embedder, qdrant, contextual_enricher)
-    app.state.search = SearchService(embedder, qdrant)
+    app.state.search = SearchService(openai_embedder, qdrant)
 
     log.info("app_started", mode=settings.mode, version=settings.version)
     yield

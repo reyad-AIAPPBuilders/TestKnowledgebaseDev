@@ -18,22 +18,27 @@ class UserContext(BaseModel):
 class SearchFilters(BaseModel):
     """Optional filters to narrow search results."""
 
-    classification: list[str] | None = Field(None, description="Filter by content categories (e.g. ['funding', 'policy'])")
+    content_type: list[str] | None = Field(None, description="Filter by content types (e.g. ['funding', 'policy'])")
 
 
 class SearchRequest(BaseModel):
-    """Semantic search request with mandatory permission filtering.
+    """Semantic or hybrid search request with mandatory permission filtering.
 
     No search is ever unfiltered. The user context determines which documents
     are visible based on ACL visibility and group membership.
+
+    **Search modes:**
+    - `semantic` (default) — dense-only cosine search via OpenAI embeddings
+    - `hybrid` — dense (OpenAI) + sparse (BM25) with Reciprocal Rank Fusion (RRF)
     """
 
     collection_name: str = Field(..., description="Qdrant collection name to search in")
     query: str = Field(..., min_length=1, description="Natural language search query")
     user: UserContext = Field(..., description="User identity for permission filtering (always required)")
     filters: SearchFilters | None = Field(None, description="Optional content filters")
+    search_mode: str = Field("semantic", description="'semantic' (dense cosine only, default) or 'hybrid' (dense + BM25 sparse with RRF)")
     top_k: int = Field(10, ge=1, le=100, description="Maximum number of results to return")
-    score_threshold: float = Field(0.5, ge=0.0, le=1.0, description="Minimum similarity score (0.0 = all, 1.0 = exact match)")
+    score_threshold: float = Field(0.5, ge=0.0, le=1.0, description="Minimum similarity score (0.0 = all, 1.0 = exact match). Used for semantic mode only.")
 
     model_config = {
         "json_schema_extra": {
@@ -48,7 +53,8 @@ class SearchRequest(BaseModel):
                         "roles": ["member"],
                         "department": "bauamt",
                     },
-                    "filters": {"classification": ["funding"]},
+                    "filters": {"content_type": ["funding"]},
+                    "search_mode": "semantic",
                     "top_k": 10,
                     "score_threshold": 0.5,
                 },
@@ -69,7 +75,7 @@ class SearchResultMetadata(BaseModel):
 
     title: str | None = Field(None, description="Document title")
     organization_id: str | None = Field(None, description="Organization/tenant identifier")
-    department: str | None = Field(None, description="Source department")
+    department: list[str] | None = Field(None, description="Source departments")
     source_type: str | None = Field(None, description="Origin: smb, r2, or web")
 
 
@@ -88,7 +94,7 @@ class SearchResult(BaseModel):
     chunk_text: str = Field(..., description="The matching text chunk")
     score: float = Field(..., description="Semantic similarity score (0.0 to 1.0)")
     source_path: str = Field(..., description="Original file path or URL")
-    classification: str = Field(..., description="Content category of the source document")
+    content_type: list[str] = Field(..., description="Content categories of the source document")
     entities: SearchResultEntities = Field(..., description="Entities found in this chunk")
     metadata: SearchResultMetadata = Field(..., description="Source document metadata")
 
@@ -106,6 +112,7 @@ class SearchData(BaseModel):
 
     results: list[SearchResult] = Field(..., description="Matching chunks ranked by similarity")
     total_results: int = Field(..., description="Number of results returned")
-    query_embedding_ms: int = Field(..., description="Time to embed the query via BGE-M3 (ms)")
+    query_embedding_ms: int = Field(..., description="Time to embed the query (ms)")
     search_ms: int = Field(..., description="Time to search Qdrant (ms)")
+    search_mode: str = Field(..., description="Search mode used: 'semantic' or 'hybrid'")
     permission_filter_applied: PermissionFilterApplied = Field(..., description="Permission filters that were enforced")

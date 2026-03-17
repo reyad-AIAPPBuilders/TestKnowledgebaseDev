@@ -79,6 +79,7 @@ class QdrantService:
         if sparse:
             sparse_config = {
                 "sparse": {
+                    "modifier": "idf",
                     "index": {"on_disk": False},
                 },
             }
@@ -281,6 +282,60 @@ class QdrantService:
         duration = int((time.monotonic() - start) * 1000)
         results = resp.json().get("result", [])
         log.info("qdrant_search", collection=collection, results=len(results), duration_ms=duration)
+        return results
+
+    async def hybrid_search(
+        self,
+        collection: str,
+        dense_vector: list[float],
+        sparse_vector: dict,
+        filters: dict | None = None,
+        top_k: int = 10,
+        prefetch_limit: int = 20,
+    ) -> list[dict]:
+        """Hybrid search using RRF (Reciprocal Rank Fusion) over dense + sparse vectors."""
+        if not self._client:
+            raise QdrantError("Qdrant client not initialized")
+
+        start = time.monotonic()
+
+        prefetch = [
+            {
+                "query": sparse_vector,
+                "using": "sparse",
+                "limit": prefetch_limit,
+            },
+            {
+                "query": dense_vector,
+                "using": "dense",
+                "limit": prefetch_limit,
+            },
+        ]
+
+        body: dict = {
+            "prefetch": prefetch,
+            "query": {"fusion": "rrf"},
+            "limit": top_k,
+            "with_payload": True,
+        }
+
+        if filters:
+            body["filter"] = filters
+
+        try:
+            resp = await self._client.post(
+                f"/collections/{collection}/points/query",
+                json=body,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise QdrantError(f"Hybrid search failed: {e.response.text}") from e
+        except httpx.RequestError as e:
+            raise QdrantError(f"Qdrant connection failed: {e}") from e
+
+        duration = int((time.monotonic() - start) * 1000)
+        results = resp.json().get("result", {}).get("points", [])
+        log.info("qdrant_hybrid_search", collection=collection, results=len(results), duration_ms=duration)
         return results
 
     async def _count_by_source_id(self, collection: str, source_id: str) -> int:

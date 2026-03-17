@@ -223,13 +223,17 @@ Classify content into 9 categories and extract structured entities. Designed for
 
 ## `POST /api/v1/search`
 
-Permission-aware semantic search. **No search is ever unfiltered** — every request requires a user context.
+Permission-aware semantic or hybrid search. **No search is ever unfiltered** — every request requires a user context.
+
+**Search modes:**
+- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small` (1536-dim)
+- `hybrid` — dense (OpenAI) + sparse (BM25) combined with **Reciprocal Rank Fusion (RRF)**. Requires the collection to have been ingested with `search_mode: hybrid`.
 
 **Permission model:**
 - `citizen` → sees only `visibility: "public"` documents
 - `employee` → sees `public` + `internal`, filtered by AD group membership
 
-### Case 1: Employee search with classification filter
+### Case 1: Semantic search (default)
 
 **Request:**
 ```json
@@ -246,24 +250,25 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
   "filters": {
     "content_type": ["funding"]
   },
+  "search_mode": "semantic",
   "top_k": 10,
   "score_threshold": 0.5
 }
 ```
 
-### Case 2: Citizen search (public documents only)
+### Case 2: Hybrid search (dense + BM25 with RRF)
 
 **Request:**
 ```json
 {
   "collection_name": "wiener-neudorf",
-  "query": "Öffnungszeiten Gemeindeamt",
+  "query": "Förderung Photovoltaik Antragsfrist",
   "user": {
     "type": "citizen",
     "user_id": "anonymous"
   },
-  "top_k": 5,
-  "score_threshold": 0.5
+  "search_mode": "hybrid",
+  "top_k": 10
 }
 ```
 
@@ -280,56 +285,28 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
         "score": 0.92,
         "source_path": "//server/bauamt/foerderungen/solar_2025.pdf",
         "content_type": ["funding", "renewable_energy"],
-        "organization_id": "org_wiener_neudorf",
-        "department": ["Bauamt"],
         "entities": {
           "amounts": ["EUR 5.000"],
           "deadlines": ["2025-06-30"]
         },
         "metadata": {
           "title": "Solarförderung 2025",
-          "source_type": "smb"
+          "organization_id": "org_wiener_neudorf",
+          "department": ["Bauamt"],
+          "source_type": "web"
         }
       }
     ],
     "total_results": 7,
     "query_embedding_ms": 15,
     "search_ms": 22,
+    "search_mode": "semantic",
     "permission_filter_applied": {
       "visibility": ["public", "internal"],
       "must_match_groups": ["DOMAIN\\Bauamt-Mitarbeiter", "DOMAIN\\Alle-Mitarbeiter"],
       "must_not_match_groups": []
     }
   },
-  "request_id": "..."
-}
-```
-
-**Response (no results):**
-```json
-{
-  "success": true,
-  "data": {
-    "results": [],
-    "total_results": 0,
-    "query_embedding_ms": 12,
-    "search_ms": 5,
-    "permission_filter_applied": {
-      "visibility": ["public"],
-      "must_match_groups": [],
-      "must_not_match_groups": []
-    }
-  },
-  "request_id": "..."
-}
-```
-
-**Response (empty query):**
-```json
-{
-  "success": false,
-  "error": "VALIDATION_EMPTY_CONTENT",
-  "detail": "Query must not be empty",
   "request_id": "..."
 }
 ```
@@ -348,8 +325,9 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
 | `user.department` | string | No | — | Department for filtering |
 | `filters` | object | No | — | Optional content filters |
 | `filters.content_type` | array | No | — | Filter by content types (e.g. `["funding", "policy"]`) |
+| `search_mode` | string | No | `"semantic"` | `"semantic"` (dense cosine only) or `"hybrid"` (dense + BM25 sparse with RRF) |
 | `top_k` | int | No | 10 | Max results (1-100) |
-| `score_threshold` | float | No | 0.5 | Min similarity score (0.0-1.0) |
+| `score_threshold` | float | No | 0.5 | Min similarity score (0.0-1.0). Used for semantic mode only. |
 
 ### Error codes
 `VALIDATION_USER_REQUIRED`, `VALIDATION_EMPTY_CONTENT`, `EMBEDDING_MODEL_NOT_LOADED`, `EMBEDDING_FAILED`, `QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, `QDRANT_SEARCH_FAILED`

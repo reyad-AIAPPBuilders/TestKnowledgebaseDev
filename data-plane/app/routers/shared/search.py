@@ -1,5 +1,5 @@
 """
-POST /api/v1/search — Semantic search with mandatory permission filtering.
+POST /api/v1/search — Semantic or hybrid search with mandatory permission filtering.
 """
 
 from fastapi import APIRouter, Request
@@ -32,21 +32,24 @@ _ERROR_CODE_MAP = {
 
 @router.post(
     "/search",
-    summary="Permission-aware semantic search",
+    summary="Permission-aware semantic or hybrid search",
     description=(
         "Search a specific Qdrant `collection_name` with **mandatory permission filtering** based on user identity.\n\n"
+        "**Search modes** (via `search_mode`):\n"
+        "- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small`\n"
+        "- `hybrid` — dense (OpenAI) + sparse (BM25) combined with **Reciprocal Rank Fusion (RRF)**. "
+        "Requires the collection to have been created with `search_mode: hybrid` during ingestion.\n\n"
         "**Multi-tenant:** The caller specifies which `collection_name` to search in.\n\n"
         "**Permission model:**\n"
         "- `citizen` — Can only see documents with `visibility: public`\n"
         "- `employee` — Can see `public` + `internal` documents filtered by AD group membership\n\n"
         "**The search pipeline:**\n"
-        "1. Embed the query via BGE-M3 (1024-dim dense vector)\n"
-        "2. Build Qdrant filter from user permissions (visibility + group intersection)\n"
-        "3. Execute nearest-neighbor search with score threshold\n"
-        "4. Return ranked results with transparency on which filters were applied\n\n"
-        "**Result metadata** includes `organization_id`, `department`, `title`, `source_type`, "
-        "extracted entities (amounts, deadlines), and content classification.\n\n"
-        "**Optional filters:** `classification` (e.g. `funding`, `event`, `policy`)\n\n"
+        "1. Embed the query via OpenAI `text-embedding-3-small` (1536-dim dense vector)\n"
+        "2. (Hybrid only) Encode query with BM25 for sparse vector\n"
+        "3. Build Qdrant filter from user permissions (visibility + group intersection)\n"
+        "4. Execute search — semantic (nearest-neighbor) or hybrid (RRF fusion of dense + sparse)\n"
+        "5. Return ranked results with transparency on which filters were applied\n\n"
+        "**Optional filters:** `content_type` (e.g. `funding`, `event`, `policy`)\n\n"
         "**Error codes:** `VALIDATION_USER_REQUIRED`, `EMBEDDING_MODEL_NOT_LOADED`, `EMBEDDING_FAILED`, "
         "`QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, `QDRANT_SEARCH_FAILED`"
     ),
@@ -57,8 +60,8 @@ async def search(body: SearchRequest, request: Request) -> ResponseEnvelope[Sear
     search_svc = request.app.state.search
 
     classification_filter = None
-    if body.filters and body.filters.classification:
-        classification_filter = body.filters.classification
+    if body.filters and body.filters.content_type:
+        classification_filter = body.filters.content_type
 
     try:
         result = await search_svc.search(
@@ -72,6 +75,7 @@ async def search(body: SearchRequest, request: Request) -> ResponseEnvelope[Sear
             classification_filter=classification_filter,
             top_k=body.top_k,
             score_threshold=body.score_threshold,
+            search_mode=body.search_mode,
         )
     except SearchError as e:
         error_code = _ERROR_CODE_MAP.get(e.code, ErrorCode.QDRANT_SEARCH_FAILED)
@@ -90,7 +94,7 @@ async def search(body: SearchRequest, request: Request) -> ResponseEnvelope[Sear
             chunk_text=r.chunk_text,
             score=r.score,
             source_path=r.source_path,
-            classification=r.classification,
+            content_type=r.classification,
             entities=SearchResultEntities(
                 amounts=r.entity_amounts,
                 deadlines=r.entity_deadlines,
@@ -112,6 +116,7 @@ async def search(body: SearchRequest, request: Request) -> ResponseEnvelope[Sear
             total_results=result.total_results,
             query_embedding_ms=result.query_embedding_ms,
             search_ms=result.search_ms,
+            search_mode=result.search_mode,
             permission_filter_applied=PermissionFilterApplied(
                 visibility=result.permission_filter.visibility,
                 must_match_groups=result.permission_filter.must_match_groups,

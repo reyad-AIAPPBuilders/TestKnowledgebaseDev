@@ -1,8 +1,9 @@
-"""Permission-aware semantic search service."""
+"""Permission-aware semantic and hybrid search service."""
 
 import time
 
-from app.services.embedding.bge_m3_client import BGEM3Client, EmbeddingError
+from app.services.embedding.bge_m3_client import EmbeddingError
+from app.services.embedding.bm25_encoder import BM25Encoder
 from app.services.embedding.qdrant_service import QdrantError, QdrantService
 from app.utils.logger import get_logger
 
@@ -32,12 +33,12 @@ class SearchResultItem:
         chunk_text: str,
         score: float,
         source_path: str,
-        classification: str,
+        classification: list[str],
         entity_amounts: list[str],
         entity_deadlines: list[str],
         title: str | None,
         organization_id: str | None,
-        department: str | None,
+        department: list[str] | None,
         source_type: str | None,
     ):
         self.chunk_id = chunk_id
@@ -62,20 +63,27 @@ class SearchResult:
         query_embedding_ms: int,
         search_ms: int,
         permission_filter: PermissionFilter,
+        search_mode: str,
     ):
         self.results = results
         self.total_results = total_results
         self.query_embedding_ms = query_embedding_ms
         self.search_ms = search_ms
         self.permission_filter = permission_filter
+        self.search_mode = search_mode
 
 
 class SearchService:
-    """Semantic search with mandatory ACL-based permission filtering."""
+    """Semantic and hybrid search with permission filtering.
 
-    def __init__(self, embedder: BGEM3Client, qdrant: QdrantService) -> None:
+    - semantic: dense-only cosine search via OpenAI embeddings
+    - hybrid: dense (OpenAI) + sparse (BM25) with Reciprocal Rank Fusion (RRF)
+    """
+
+    def __init__(self, embedder, qdrant: QdrantService) -> None:
         self._embedder = embedder
         self._qdrant = qdrant
+        self._bm25 = BM25Encoder()
 
     async def search(
         self,
@@ -89,6 +97,7 @@ class SearchService:
         classification_filter: list[str] | None = None,
         top_k: int = 10,
         score_threshold: float = 0.5,
+        search_mode: str = "semantic",
     ) -> SearchResult:
         collection = collection_name
         if not collection:
@@ -99,7 +108,7 @@ class SearchService:
         # 1. Build permission filter
         perm_filter = self._build_permission_filter(user_type, user_groups)
 
-        # 2. Embed the query
+        # 2. Embed the query (dense via OpenAI)
         embed_start = time.monotonic()
         try:
             embedding = await self._embedder.embed(query)
@@ -113,16 +122,26 @@ class SearchService:
         # 3. Build Qdrant filter
         qdrant_filter = self._build_qdrant_filter(perm_filter, classification_filter)
 
-        # 4. Search
+        # 4. Search — semantic or hybrid
         search_start = time.monotonic()
         try:
-            raw_results = await self._qdrant.search(
-                collection=collection,
-                dense_vector=embedding.dense,
-                filters=qdrant_filter,
-                top_k=top_k,
-                score_threshold=score_threshold,
-            )
+            if search_mode == "hybrid":
+                sparse_vector = self._bm25.encode(query)
+                raw_results = await self._qdrant.hybrid_search(
+                    collection=collection,
+                    dense_vector=embedding.dense,
+                    sparse_vector=sparse_vector,
+                    filters=qdrant_filter,
+                    top_k=top_k,
+                )
+            else:
+                raw_results = await self._qdrant.search(
+                    collection=collection,
+                    dense_vector=embedding.dense,
+                    filters=qdrant_filter,
+                    top_k=top_k,
+                    score_threshold=score_threshold,
+                )
         except QdrantError as e:
             error_msg = str(e).lower()
             if "not found" in error_msg:
@@ -157,6 +176,7 @@ class SearchService:
             query_len=len(query),
             results=len(items),
             user_type=user_type,
+            search_mode=search_mode,
             embedding_ms=query_embedding_ms,
             search_ms=search_ms,
         )
@@ -167,6 +187,7 @@ class SearchService:
             query_embedding_ms=query_embedding_ms,
             search_ms=search_ms,
             permission_filter=perm_filter,
+            search_mode=search_mode,
         )
 
     def _build_permission_filter(

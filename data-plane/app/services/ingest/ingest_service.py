@@ -5,6 +5,7 @@ import uuid
 
 from app.config import settings
 from app.services.embedding.bge_m3_client import EmbeddingError
+from app.services.embedding.bm25_encoder import BM25Encoder
 from app.services.embedding.qdrant_service import QdrantError, QdrantService
 from app.services.intelligence.chunker import Chunker
 from app.services.intelligence.classifier import Classifier
@@ -57,6 +58,7 @@ class IngestService:
         self._embedder = embedder
         self._qdrant = qdrant
         self._contextual_enricher = contextual_enricher
+        self._bm25 = BM25Encoder()
 
     async def ingest(
         self,
@@ -194,13 +196,9 @@ class IngestService:
 
             vectors: dict = {"dense": embedding.dense}
 
-            # Include sparse vector for hybrid search mode
-            if use_sparse and embedding.sparse:
-                indices = sorted(embedding.sparse.keys())
-                vectors["sparse"] = {
-                    "indices": indices,
-                    "values": [embedding.sparse[idx] for idx in indices],
-                }
+            # Include BM25 sparse vector for hybrid search mode
+            if use_sparse:
+                vectors["sparse"] = self._bm25.encode(chunk_text)
 
             point = {
                 "id": str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id)),
