@@ -1,0 +1,113 @@
+from urllib.parse import urljoin, urlparse
+
+from bs4 import BeautifulSoup
+
+from app.utils.logger import get_logger
+
+log = get_logger(__name__)
+
+DOCUMENT_EXTENSIONS = {
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".doc": "doc",
+    ".xlsx": "xlsx",
+    ".xls": "xls",
+    ".pptx": "pptx",
+    ".ppt": "ppt",
+    ".odt": "odt",
+    ".ods": "ods",
+    ".rtf": "rtf",
+    ".csv": "csv",
+}
+
+
+class DiscoveredDoc:
+    """A document URL found on a page."""
+
+    __slots__ = ("url", "type", "link_text", "found_on")
+
+    def __init__(self, url: str, type: str, link_text: str | None = None, found_on: str | None = None):
+        self.url = url
+        self.type = type
+        self.link_text = link_text
+        self.found_on = found_on
+
+
+def document_type(url: str) -> str | None:
+    path = urlparse(url).path.lower()
+    for ext, doc_type in DOCUMENT_EXTENSIONS.items():
+        if path.endswith(ext):
+            return doc_type
+    return None
+
+
+def discover_documents(html: str, base_url: str) -> list[DiscoveredDoc]:
+    """Extract document URLs from HTML by extension and normalize to absolute URLs."""
+    soup = BeautifulSoup(html or "", "lxml")
+    seen: set[str] = set()
+    docs: list[DiscoveredDoc] = []
+
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag.get("href")
+        if not isinstance(href, str):
+            continue
+        href = href.strip()
+        if not href or href.startswith(("javascript:", "mailto:", "tel:", "#")):
+            continue
+
+        abs_url = urljoin(base_url, href)
+        doc_kind = document_type(abs_url)
+        if not doc_kind:
+            continue
+        if abs_url in seen:
+            continue
+
+        seen.add(abs_url)
+        link_text = a_tag.get_text(strip=True) or None
+        docs.append(
+            DiscoveredDoc(
+                url=abs_url,
+                type=doc_kind,
+                link_text=link_text,
+                found_on=base_url,
+            )
+        )
+
+    log.debug("documents_discovered", base_url=base_url, count=len(docs))
+    return docs
+
+
+def extract_documents_and_links(html: str, base_url: str, found_on: str | None = None) -> tuple[list[DiscoveredDoc], list[str]]:
+    """Return both discovered documents and normal links."""
+    soup = BeautifulSoup(html or "", "lxml")
+    docs = discover_documents(html, base_url)
+
+    doc_urls = {doc.url for doc in docs}
+    links: list[str] = []
+    seen_links: set[str] = set()
+
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag.get("href")
+        if not isinstance(href, str):
+            continue
+        href = href.strip()
+        if not href or href.startswith(("javascript:", "mailto:", "tel:", "#")):
+            continue
+
+        abs_url = urljoin(base_url, href)
+        parsed = urlparse(abs_url)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if abs_url in doc_urls:
+            continue
+        if abs_url in seen_links:
+            continue
+
+        seen_links.add(abs_url)
+        links.append(abs_url)
+
+    if found_on:
+        for doc in docs:
+            doc.found_on = found_on
+
+    return docs, links

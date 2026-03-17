@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python313", "gcc", "libxml2", "libxslt", "zlib"]
+
+[phases.install]
+cmds = [
+    "curl -LsSf https://astral.sh/uv/install.sh | sh",
+    ". $HOME/.local/bin/env && uv sync --no-dev --frozen",
+]
+
+[start]
+cmd = ". $HOME/.local/bin/env && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"

@@ -1,0 +1,93 @@
+"""BGE-M3 embedding client — calls the BGE-M3 inference server for dense+sparse embeddings."""
+
+import time
+
+import httpx
+
+from app.config import ext
+from app.utils.logger import get_logger
+
+log = get_logger(__name__)
+
+DEFAULT_DENSE_DIM = 1024
+
+
+class EmbeddingError(Exception):
+    pass
+
+
+class EmbeddingResult:
+    def __init__(
+        self,
+        dense: list[float],
+        sparse: dict[int, float] | None = None,
+        duration_ms: int = 0,
+    ):
+        self.dense = dense
+        self.sparse = sparse
+        self.duration_ms = duration_ms
+
+
+class BGEM3Client:
+    """HTTP client for the BGE-M3 embedding service."""
+
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+        self._base_url = ext.bge_m3_url.rstrip("/")
+
+    async def startup(self) -> None:
+        self._client = httpx.AsyncClient(
+            base_url=self._base_url,
+            timeout=httpx.Timeout(60),
+        )
+        log.info("bge_m3_client_started", url=self._base_url)
+
+    async def shutdown(self) -> None:
+        if self._client:
+            await self._client.aclose()
+        log.info("bge_m3_client_stopped")
+
+    async def check_health(self) -> bool:
+        if not self._client:
+            return False
+        try:
+            resp = await self._client.get("/health", timeout=5)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    async def embed(self, text: str) -> EmbeddingResult:
+        """Generate dense + sparse embeddings for a single text."""
+        return (await self.embed_batch([text]))[0]
+
+    async def embed_batch(self, texts: list[str]) -> list[EmbeddingResult]:
+        """Generate embeddings for a batch of texts."""
+        if not self._client:
+            raise EmbeddingError("BGE-M3 client not initialized")
+
+        start = time.monotonic()
+        try:
+            resp = await self._client.post(
+                "/embed",
+                json={"texts": texts, "return_sparse": True},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise EmbeddingError(f"BGE-M3 HTTP {e.response.status_code}: {e.response.text}") from e
+        except httpx.RequestError as e:
+            raise EmbeddingError(f"BGE-M3 connection error: {e}") from e
+
+        duration = int((time.monotonic() - start) * 1000)
+        data = resp.json()
+
+        dense_embeddings = data.get("dense", [])
+        sparse_embeddings = data.get("sparse", [None] * len(texts))
+
+        results = []
+        for i in range(len(texts)):
+            dense = dense_embeddings[i] if i < len(dense_embeddings) else []
+            sparse = sparse_embeddings[i] if i < len(sparse_embeddings) else None
+            results.append(EmbeddingResult(dense=dense, sparse=sparse, duration_ms=duration))
+
+        log.info("bge_m3_embed_complete", count=len(texts), duration_ms=duration)
+        return results
