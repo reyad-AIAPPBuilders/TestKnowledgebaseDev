@@ -1450,7 +1450,7 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 | GET | `/api/v1/ready` | Readiness probe | None / HMAC |
 | GET | `/metrics` | Prometheus metrics | None |
 | POST | `/api/v1/classify` | Classify + extract entities | HMAC |
-| POST | `/api/v1/search` | Permission-aware semantic search | HMAC |
+| POST | `/api/v1/search` | Permission-aware semantic / hybrid search | HMAC |
 | POST | `/api/v1/collections/init` | Create Qdrant collection | HMAC |
 | GET | `/api/v1/collections/stats` | Collection statistics | HMAC |
 
@@ -1519,7 +1519,7 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 | **Classify** | `CLASSIFY_FAILED` | Classification failed |
 | | `CLASSIFY_LOW_CONFIDENCE` | Confidence below threshold |
 | | `ENTITY_EXTRACTION_FAILED` | Entity extraction failed |
-| **Embedding** | `EMBEDDING_MODEL_NOT_LOADED` | BGE-M3 model not available |
+| **Embedding** | `EMBEDDING_MODEL_NOT_LOADED` | Embedding model not available |
 | | `EMBEDDING_FAILED` | Embedding generation failed |
 | | `EMBEDDING_OOM` | Out of memory during embedding |
 | **Qdrant** | `QDRANT_CONNECTION_FAILED` | Cannot connect to Qdrant |

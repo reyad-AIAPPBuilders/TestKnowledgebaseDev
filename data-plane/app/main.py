@@ -177,17 +177,20 @@ tags_metadata = [
     },
     {
         "name": "Semantic Search",
-        "description": "Permission-aware semantic search across Qdrant collections.\n\n"
+        "description": "Permission-aware semantic and hybrid search across Qdrant collections.\n\n"
+        "**Search modes:**\n"
+        "- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small`\n"
+        "- `hybrid` — dense (OpenAI) + sparse (BM25) with Reciprocal Rank Fusion (RRF)\n\n"
         "**Key features:**\n"
         "- Caller specifies the target `collection_name` to search in\n"
         "- Mandatory user context for ACL filtering (citizen → public only; employee → public + internal with AD group intersection)\n"
-        "- Results include `organization_id`, `department`, entity data, and classification\n"
-        "- Optional filtering by content category (e.g. `funding`, `policy`)",
+        "- Results include `organization_id`, `department`, entity data, and content type\n"
+        "- Optional filtering by content type (e.g. `funding`, `policy`)",
     },
     {
         "name": "Collection Management",
         "description": "Create and inspect Qdrant vector collections for municipality tenants. "
-        "Each collection stores dense (1024-dim BGE-M3) and optional sparse vectors for hybrid search.",
+        "Each collection stores dense vectors (OpenAI or BGE-M3) and optional BM25 sparse vectors for hybrid search.",
     },
 ]
 
@@ -215,7 +218,7 @@ app = FastAPI(
         "## Pipeline Flow\n"
         "1. **Discover** → Scan file sources (SMB shares, Cloudflare R2) for new/changed documents\n"
         "2. **Scrape / Parse** → Extract text from web pages (Crawl4AI) or documents (URL, upload, SMB, R2)\n"
-        "3. **Ingest** → Chunk, classify, embed (BGE-M3), and store in Qdrant with ACL + metadata\n"
+        "3. **Ingest** → Chunk, classify, embed (OpenAI / BGE-M3), and store in Qdrant with metadata\n"
         "4. **Search** → Permission-filtered semantic search across collections\n"
     ),
     version=settings.version,
