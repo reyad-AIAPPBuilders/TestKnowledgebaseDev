@@ -781,25 +781,53 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 | `vector_size` | int | `1536` | Dimensionality of the dense cosine vector (64–4096). Must match embedding model output. |
 | `search_mode` | string | `"semantic"` | `"semantic"` — dense vectors only. `"hybrid"` — dense + sparse vectors for combined semantic + lexical search. |
 
-### Qdrant point payload (stored per chunk)
+### Qdrant point payload structure
 
-| Field | Source | Description |
-|-------|--------|-------------|
-| `chunk_id` | auto | `{source_id}_chunk_{index}` |
-| `source_id` | request | Document identifier |
-| `chunk_text` | pipeline | The text content of this chunk |
-| `chunk_index` | pipeline | Position of chunk within document |
-| `source_path` | request `url` | Original source URL |
-| `source_url` | request `url` | Source URL (metadata field) |
-| `content_type` | pipeline | Auto-detected content categories (array of strings, e.g. `["funding", "renewable_energy"]`) |
-| `language` | request / auto | ISO 639-1 language code |
-| `assistant_id` | metadata | Assistant identifier |
-| `title` | metadata | Document title |
-| `source_type` | metadata | Origin type |
-| `mime_type` | metadata | MIME type |
-| `uploaded_by` | metadata | Uploader identity |
-| `organization_id` | metadata | Organization/tenant ID |
-| `department` | metadata | Departments (array of strings) |
+Each Qdrant point has two top-level payload fields: `content` and `metadata`.
+
+```json
+{
+  "id": "uuid",
+  "vector": {"dense": [...]},
+  "payload": {
+    "content": "The chunk text content...",
+    "metadata": {
+      "chunk_id": "web_foerderungen_001_chunk_0000",
+      "source_id": "web_foerderungen_001",
+      "chunk_index": 0,
+      "source_url": "https://www.wiener-neudorf.gv.at/foerderungen",
+      "source_path": "https://www.wiener-neudorf.gv.at/foerderungen",
+      "content_type": ["funding", "renewable_energy"],
+      "language": "de",
+      "assistant_id": "asst_wiener_neudorf_01",
+      "title": "Förderungen - Gemeinde Wiener Neudorf",
+      "source_type": "web",
+      "mime_type": "text/html",
+      "uploaded_by": "scraper",
+      "organization_id": "org_wiener_neudorf",
+      "department": ["Bürgerservice", "Förderungen"]
+    }
+  }
+}
+```
+
+| Field | Location | Description |
+|-------|----------|-------------|
+| `content` | `payload.content` | The text content of this chunk |
+| `chunk_id` | `payload.metadata` | `{source_id}_chunk_{index}` |
+| `source_id` | `payload.metadata` | Document identifier |
+| `chunk_index` | `payload.metadata` | Position of chunk within document |
+| `source_url` | `payload.metadata` | Source URL from request |
+| `source_path` | `payload.metadata` | Original source path/URL |
+| `content_type` | `payload.metadata` | Auto-detected content categories (array of strings) |
+| `language` | `payload.metadata` | ISO 639-1 language code |
+| `assistant_id` | `payload.metadata` | Assistant identifier |
+| `title` | `payload.metadata` | Document title |
+| `source_type` | `payload.metadata` | Origin type |
+| `mime_type` | `payload.metadata` | MIME type |
+| `uploaded_by` | `payload.metadata` | Uploader identity |
+| `organization_id` | `payload.metadata` | Organization/tenant ID |
+| `department` | `payload.metadata` | Departments (array of strings) |
 
 ### Error codes
 `VALIDATION_EMPTY_CONTENT`, `EMBEDDING_MODEL_NOT_LOADED`, `EMBEDDING_FAILED`, `EMBEDDING_OOM`, `QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, `QDRANT_UPSERT_FAILED`, `QDRANT_DISK_FULL`, `CLASSIFY_FAILED`

@@ -161,7 +161,7 @@ class QdrantService:
                 json={
                     "filter": {
                         "must": [
-                            {"key": "source_id", "match": {"value": source_id}},
+                            {"key": "metadata.source_id", "match": {"value": source_id}},
                         ],
                     },
                 },
@@ -229,7 +229,7 @@ class QdrantService:
                     "payload": payload,
                     "filter": {
                         "must": [
-                            {"key": "source_id", "match": {"value": source_id}},
+                            {"key": "metadata.source_id", "match": {"value": source_id}},
                         ],
                     },
                 },
@@ -291,7 +291,7 @@ class QdrantService:
                 json={
                     "filter": {
                         "must": [
-                            {"key": "source_id", "match": {"value": source_id}},
+                            {"key": "metadata.source_id", "match": {"value": source_id}},
                         ],
                     },
                     "exact": True,

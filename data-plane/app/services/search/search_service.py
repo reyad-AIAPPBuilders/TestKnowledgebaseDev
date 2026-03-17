@@ -136,19 +136,20 @@ class SearchService:
         items = []
         for hit in raw_results:
             payload = hit.get("payload", {})
+            meta = payload.get("metadata", {})
             items.append(SearchResultItem(
-                chunk_id=payload.get("chunk_id", ""),
-                source_id=payload.get("source_id", ""),
-                chunk_text=payload.get("chunk_text", ""),
+                chunk_id=meta.get("chunk_id", ""),
+                source_id=meta.get("source_id", ""),
+                chunk_text=payload.get("content", ""),
                 score=hit.get("score", 0.0),
-                source_path=payload.get("source_path", ""),
-                classification=payload.get("classification", "general"),
-                entity_amounts=payload.get("entity_amounts", []),
-                entity_deadlines=payload.get("entity_deadlines", []),
-                title=payload.get("title"),
-                organization_id=payload.get("organization_id"),
-                department=payload.get("department") or payload.get("acl_department"),
-                source_type=payload.get("source_type"),
+                source_path=meta.get("source_path", ""),
+                classification=meta.get("content_type", ["general"]),
+                entity_amounts=meta.get("entity_amounts", []),
+                entity_deadlines=meta.get("entity_deadlines", []),
+                title=meta.get("title"),
+                organization_id=meta.get("organization_id"),
+                department=meta.get("department") or meta.get("acl_department"),
+                source_type=meta.get("source_type"),
             ))
 
         log.info(
@@ -194,7 +195,7 @@ class SearchService:
 
         # Visibility filter
         must_conditions.append({
-            "key": "acl_visibility",
+            "key": "metadata.acl_visibility",
             "match": {"any": perm_filter.visibility},
         })
 
@@ -204,19 +205,19 @@ class SearchService:
             must_conditions.append({
                 "should": [
                     {
-                        "key": "acl_allow_groups",
+                        "key": "metadata.acl_allow_groups",
                         "match": {"any": perm_filter.must_match_groups},
                     },
                     {
-                        "is_empty": {"key": "acl_allow_groups"},
+                        "is_empty": {"key": "metadata.acl_allow_groups"},
                     },
                 ],
             })
 
-        # Classification filter
+        # Content type filter
         if classification_filter:
             must_conditions.append({
-                "key": "classification",
+                "key": "metadata.content_type",
                 "match": {"any": classification_filter},
             })
 

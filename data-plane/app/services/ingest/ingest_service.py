@@ -138,17 +138,15 @@ class IngestService:
         points = []
         for i, (chunk_text, embedding) in enumerate(zip(chunk_result.chunks, embeddings)):
             chunk_id = f"{source_id}_chunk_{i:04d}"
-            payload = {
+            point_metadata = {
                 "chunk_id": chunk_id,
                 "source_id": source_id,
-                "chunk_text": chunk_text,
                 "chunk_index": i,
+                "source_url": metadata.get("source_url", ""),
                 "source_path": file_path,
                 "content_type": classification,
                 "language": language or "de",
-                # Metadata
                 "assistant_id": metadata.get("assistant_id", ""),
-                "source_url": metadata.get("source_url", ""),
                 "title": metadata.get("title", ""),
                 "source_type": metadata.get("source_type", ""),
                 "mime_type": metadata.get("mime_type", ""),
@@ -157,9 +155,9 @@ class IngestService:
                 "department": metadata.get("department", []),
             }
 
-            # ACL fields flattened for Qdrant filtering (when provided)
+            # ACL fields (when provided)
             if acl:
-                payload.update({
+                point_metadata.update({
                     "acl_allow_groups": acl.get("allow_groups", []),
                     "acl_deny_groups": acl.get("deny_groups", []),
                     "acl_allow_roles": acl.get("allow_roles", []),
@@ -170,8 +168,13 @@ class IngestService:
 
             # Add entity data if available
             if classify_result:
-                payload["entity_amounts"] = classify_result.entities.amounts[:5]
-                payload["entity_deadlines"] = classify_result.entities.deadlines[:5]
+                point_metadata["entity_amounts"] = classify_result.entities.amounts[:5]
+                point_metadata["entity_deadlines"] = classify_result.entities.deadlines[:5]
+
+            payload = {
+                "content": chunk_text,
+                "metadata": point_metadata,
+            }
 
             vectors: dict = {"dense": embedding.dense}
 

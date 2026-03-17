@@ -76,7 +76,7 @@ async def delete_vectors(
         "**Filterable metadata fields:**\n"
         "- `source_id` — Document ID\n"
         "- `source_type` — Origin type (`smb`, `r2`, `web`)\n"
-        "- `classification` — Content category (`funding`, `event`, `policy`, etc.)\n"
+        "- `content_type` — Content categories (`funding`, `event`, `policy`, etc.)\n"
         "- `acl_visibility` — Visibility level (`public`, `internal`, `restricted`)\n"
         "- `acl_department` — Department tag\n"
         "- `organization_id` — Organization/tenant ID\n"
@@ -93,9 +93,9 @@ async def delete_by_filter(body: DeleteByFilterRequest, request: Request) -> Res
     request_id = request.state.request_id
     qdrant = request.app.state.qdrant
 
-    # Build Qdrant filter from metadata conditions
+    # Build Qdrant filter from metadata conditions (fields are nested under payload.metadata)
     must_conditions = [
-        {"key": f.key, "match": {"value": f.value}}
+        {"key": f"metadata.{f.key}", "match": {"value": f.value}}
         for f in body.filters
     ]
     qdrant_filter = {"must": must_conditions}
@@ -147,14 +147,14 @@ async def update_acl(body: UpdateACLRequest, request: Request) -> ResponseEnvelo
     collection = body.collection_name
 
     acl_payload = {
-        "acl_allow_groups": body.acl.allow_groups,
-        "acl_deny_groups": body.acl.deny_groups,
-        "acl_allow_roles": body.acl.allow_roles,
-        "acl_allow_users": body.acl.allow_users,
-        "acl_visibility": body.acl.visibility,
+        "metadata.acl_allow_groups": body.acl.allow_groups,
+        "metadata.acl_deny_groups": body.acl.deny_groups,
+        "metadata.acl_allow_roles": body.acl.allow_roles,
+        "metadata.acl_allow_users": body.acl.allow_users,
+        "metadata.acl_visibility": body.acl.visibility,
     }
     if body.acl.department is not None:
-        acl_payload["acl_department"] = body.acl.department
+        acl_payload["metadata.acl_department"] = body.acl.department
 
     try:
         updated = await qdrant.update_payload(collection, body.source_id, acl_payload)
