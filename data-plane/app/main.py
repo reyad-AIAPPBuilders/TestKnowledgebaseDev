@@ -16,6 +16,7 @@ from app.routers.local import vectors as local_vectors
 from app.routers.online import ingest as online_ingest
 from app.routers.online import parse as online_parse
 from app.routers.online import scrape as online_scrape
+from app.routers.online import vectors as online_vectors
 from app.routers.shared import classify, collections, health, metrics, search
 from app.services.discovery.discovery_service import DiscoveryService
 from app.services.discovery.r2_client import R2Client
@@ -245,3 +246,4 @@ app.include_router(local_vectors.router)
 app.include_router(online_scrape.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_parse.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_ingest.router, dependencies=[Depends(require_api_key)])
+app.include_router(online_vectors.router, dependencies=[Depends(require_api_key)])
