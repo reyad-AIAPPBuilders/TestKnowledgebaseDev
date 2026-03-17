@@ -89,9 +89,10 @@ async def delete_by_filter(
     request_id = request.state.request_id
     qdrant = request.app.state.qdrant
 
-    # Build Qdrant filter (fields are nested under payload.metadata)
+    # Build Qdrant filter — top-level fields stay at root, others are nested under metadata
+    top_level_fields = {"organization_id", "assistant_id", "department"}
     must_conditions = [
-        {"key": f"metadata.{f.key}", "match": {"value": f.value}}
+        {"key": f.key if f.key in top_level_fields else f"metadata.{f.key}", "match": {"value": f.value}}
         for f in body.filters
     ]
     qdrant_filter = {"must": must_conditions}

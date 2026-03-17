@@ -147,8 +147,8 @@ class SearchService:
                 entity_amounts=meta.get("entity_amounts", []),
                 entity_deadlines=meta.get("entity_deadlines", []),
                 title=meta.get("title"),
-                organization_id=meta.get("organization_id"),
-                department=meta.get("department") or meta.get("acl_department"),
+                organization_id=payload.get("organization_id"),
+                department=payload.get("department") or meta.get("acl_department"),
                 source_type=meta.get("source_type"),
             ))
 

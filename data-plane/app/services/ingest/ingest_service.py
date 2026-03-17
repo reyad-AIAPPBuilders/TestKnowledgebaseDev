@@ -162,13 +162,10 @@ class IngestService:
                 "source_path": file_path,
                 "content_type": classification,
                 "language": language or "de",
-                "assistant_id": metadata.get("assistant_id", ""),
                 "title": metadata.get("title", ""),
                 "source_type": metadata.get("source_type", ""),
                 "mime_type": metadata.get("mime_type", ""),
                 "uploaded_by": metadata.get("uploaded_by", ""),
-                "organization_id": metadata.get("organization_id", ""),
-                "department": metadata.get("department", []),
             }
 
             # ACL fields (when provided)
@@ -188,6 +185,9 @@ class IngestService:
                 point_metadata["entity_deadlines"] = classify_result.entities.deadlines[:5]
 
             payload = {
+                "organization_id": metadata.get("organization_id", ""),
+                "assistant_id": metadata.get("assistant_id", ""),
+                "department": metadata.get("department", []),
                 "content": chunk_text,
                 "metadata": point_metadata,
             }
