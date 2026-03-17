@@ -69,6 +69,7 @@ async def delete_vectors(
         "All filters are combined with **AND** logic — only points matching every condition are deleted.\n\n"
         "**Filterable metadata fields:**\n"
         "- `source_id` — Document ID\n"
+        "- `source_url` — Source URL of the ingested content\n"
         "- `source_type` — Origin type (`web`)\n"
         "- `content_type` — Content categories (`funding`, `event`, `policy`, etc.)\n"
         "- `assistant_id` — Assistant identifier\n"

@@ -865,7 +865,7 @@ curl -X DELETE "https://your-domain/api/v1/online/vectors/web_foerderungen_001?c
 
 Delete vectors matching metadata filters. All filters are combined with **AND** logic — only points matching every condition are deleted.
 
-**Filterable metadata fields:** `source_id`, `source_type`, `content_type`, `assistant_id`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
+**Filterable metadata fields:** `source_id`, `source_url`, `source_type`, `content_type`, `assistant_id`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
 
 ### Case 1: Delete all vectors for an assistant
 
