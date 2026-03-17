@@ -834,6 +834,96 @@ Each Qdrant point has two top-level payload fields: `content` and `metadata`.
 
 ---
 
+## `DELETE /api/v1/online/vectors/{source_id}`
+
+Remove all vector points associated with a `source_id` from the specified Qdrant collection.
+
+**Request:**
+```bash
+curl -X DELETE "https://your-domain/api/v1/online/vectors/web_foerderungen_001?collection_name=wiener-neudorf" \
+  -H "X-API-Key: your-api-key"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "source_id": "web_foerderungen_001",
+    "vectors_deleted": 4
+  },
+  "request_id": "..."
+}
+```
+
+### Error codes
+`QDRANT_CONNECTION_FAILED`, `QDRANT_DELETE_FAILED`
+
+---
+
+## `POST /api/v1/online/vectors/delete-by-filter`
+
+Delete vectors matching metadata filters. All filters are combined with **AND** logic — only points matching every condition are deleted.
+
+**Filterable metadata fields:** `source_id`, `source_type`, `content_type`, `assistant_id`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
+
+### Case 1: Delete all vectors for an assistant
+
+**Request:**
+```bash
+curl -X POST "https://your-domain/api/v1/online/vectors/delete-by-filter" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "collection_name": "wiener-neudorf",
+    "filters": [
+      {"key": "assistant_id", "value": "asst_wiener_neudorf_01"}
+    ]
+  }'
+```
+
+### Case 2: Delete by content type and organization
+
+**Request:**
+```json
+{
+  "collection_name": "wiener-neudorf",
+  "filters": [
+    {"key": "content_type", "value": "funding"},
+    {"key": "organization_id", "value": "org_wiener_neudorf"}
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "vectors_deleted": 12,
+    "filters_applied": [
+      {"key": "content_type", "value": "funding"},
+      {"key": "organization_id", "value": "org_wiener_neudorf"}
+    ]
+  },
+  "request_id": "..."
+}
+```
+
+### Request fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `collection_name` | string | Yes | Qdrant collection to delete from |
+| `filters` | array | Yes | Metadata conditions (AND logic, min 1) |
+| `filters[].key` | string | Yes | Metadata field name |
+| `filters[].value` | string | Yes | Exact value to match |
+
+### Error codes
+`QDRANT_CONNECTION_FAILED`, `QDRANT_DELETE_FAILED`
+
+---
+
 # Local Endpoints
 
 Local endpoints do **not** require an `X-API-Key` header. They are designed for trusted network environments (on-premise, internal network).
@@ -1382,6 +1472,8 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 | POST | `/api/v1/online/crawl` | Discover URLs from site/sitemap | HMAC + API Key |
 | POST | `/api/v1/online/parse` | Parse document from URL | HMAC + API Key |
 | POST | `/api/v1/online/ingest` | Chunk + embed + store web content | HMAC + API Key |
+| DELETE | `/api/v1/online/vectors/{source_id}` | Delete document vectors | HMAC + API Key |
+| POST | `/api/v1/online/vectors/delete-by-filter` | Delete vectors by metadata filter | HMAC + API Key |
 
 ## Local Endpoints (trusted network)
 
