@@ -1282,9 +1282,21 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `strategy` | string | `late_chunking` | `late_chunking` (paragraph-aware), `sentence`, or `fixed` |
-| `max_chunk_size` | int | 512 | Max chunk size in chars (64-4096) |
+| `strategy` | string | `contextual` | `contextual` (recursive splitter + AI context prepended, default for online), `recursive` (recursive character text splitter), `late_chunking` (paragraph-aware), `sentence`, or `fixed` |
+| `max_chunk_size` | int | `1200` (online) / `512` (local) | Max chunk size in chars (64-4096) |
 | `overlap` | int | 50 | Overlap between chunks in chars (0-512) |
+
+**Chunking strategies:**
+
+| Strategy | Description |
+|----------|-------------|
+| `contextual` | **Default for online.** Recursive splitter + AI-generated context prepended to each chunk via OpenAI (`gpt-4o-mini`). Context is generated in the same language as the content. Based on Anthropic's Contextual Retrieval technique. |
+| `recursive` | Recursive character text splitter. Tries to split on the most semantic separator first (`\n\n` → `\n` → `. ` → `, ` → ` `), recursively falling back to finer separators. |
+| `late_chunking` | Paragraph-aware splitting on double newlines, merging small paragraphs. |
+| `sentence` | Splits on sentence boundaries (`.` `!` `?`). |
+| `fixed` | Raw character count splitting with overlap. |
+
+**Atomic pattern protection** (recursive and contextual strategies): URLs, email addresses, phone numbers, code blocks, and API keys are never split across chunk boundaries.
 
 ### Error codes
 `VALIDATION_EMPTY_CONTENT`, `VALIDATION_ACL_REQUIRED`, `EMBEDDING_MODEL_NOT_LOADED`, `EMBEDDING_FAILED`, `EMBEDDING_OOM`, `QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, `QDRANT_UPSERT_FAILED`, `QDRANT_DISK_FULL`, `CLASSIFY_FAILED`

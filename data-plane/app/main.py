@@ -27,6 +27,7 @@ from app.services.embedding.qdrant_service import QdrantService
 from app.services.ingest.ingest_service import IngestService
 from app.services.intelligence.chunker import Chunker
 from app.services.intelligence.classifier import Classifier
+from app.services.intelligence.contextual import ContextualEnricher
 from app.services.parsing.parser_service import ParserService
 from app.services.scraping.scraper_service import ScraperService
 from app.services.scraping.sitemap import SitemapParser
@@ -65,6 +66,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     classifier = Classifier()
     app.state.classifier = classifier
 
+    contextual_enricher = ContextualEnricher()
+    await contextual_enricher.startup()
+    app.state.contextual_enricher = contextual_enricher
+
     # ── Embedding + Storage ──────────────────────────
     embedder = BGEM3Client()
     await embedder.startup()
@@ -87,8 +92,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # ── Ingest + Search ──────────────────────────────
     chunker = Chunker()
-    app.state.ingest = IngestService(chunker, classifier, embedder, qdrant)
-    app.state.online_ingest = IngestService(chunker, classifier, openai_embedder, qdrant)
+    app.state.ingest = IngestService(chunker, classifier, embedder, qdrant, contextual_enricher)
+    app.state.online_ingest = IngestService(chunker, classifier, openai_embedder, qdrant, contextual_enricher)
     app.state.search = SearchService(embedder, qdrant)
 
     log.info("app_started", mode=settings.mode, version=settings.version)
@@ -99,6 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await parser_svc.shutdown()
     await embedder.shutdown()
     await openai_embedder.shutdown()
+    await contextual_enricher.shutdown()
     await qdrant.shutdown()
     await r2_client.shutdown()
     await sitemap_parser.close()

@@ -50,11 +50,13 @@ class IngestService:
         classifier: Classifier,
         embedder,
         qdrant: QdrantService,
+        contextual_enricher=None,
     ) -> None:
         self._chunker = chunker
         self._classifier = classifier
         self._embedder = embedder
         self._qdrant = qdrant
+        self._contextual_enricher = contextual_enricher
 
     async def ingest(
         self,
@@ -90,9 +92,12 @@ class IngestService:
             raise IngestError(str(e), code="QDRANT_CONNECTION_FAILED") from e
 
         # 1. Chunk
+        use_contextual = chunking_strategy == "contextual"
+        base_strategy = "recursive" if use_contextual else chunking_strategy
+
         chunk_result = self._chunker.chunk(
             text=content,
-            strategy=chunking_strategy,
+            strategy=base_strategy,
             max_chunk_size=max_chunk_size or settings.default_chunk_size,
             overlap=chunk_overlap if chunk_overlap is not None else settings.default_chunk_overlap,
         )
@@ -101,6 +106,17 @@ class IngestService:
             raise IngestError("Content produced no chunks", code="VALIDATION_EMPTY_CONTENT")
 
         log.info("ingest_chunked", source_id=source_id, chunks=chunk_result.total_chunks)
+
+        # 1b. Contextual Retrieval — enrich each chunk with document-level context
+        if use_contextual and self._contextual_enricher:
+            try:
+                chunk_result.chunks = await self._contextual_enricher.enrich_chunks(
+                    document=content,
+                    chunks=chunk_result.chunks,
+                )
+                log.info("ingest_contextual_enriched", source_id=source_id, chunks=len(chunk_result.chunks))
+            except Exception as e:
+                log.warning("ingest_contextual_enrichment_failed", source_id=source_id, error=str(e))
 
         # 2. Classify (on full content for better accuracy)
         try:

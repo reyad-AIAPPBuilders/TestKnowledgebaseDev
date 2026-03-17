@@ -13,8 +13,8 @@ class SearchMode(str, Enum):
 class OnlineChunkingConfig(BaseModel):
     """Configuration for text chunking during ingestion."""
 
-    strategy: str = Field("late_chunking", description="Chunking strategy: 'late_chunking' (paragraph-aware, default), 'sentence' (sentence boundaries), or 'fixed' (character count)")
-    max_chunk_size: int = Field(512, ge=64, le=4096, description="Maximum chunk size in characters")
+    strategy: str = Field("contextual", description="Chunking strategy: 'contextual' (recursive splitter + AI context prepended, default), 'recursive' (recursive character text splitter), 'late_chunking' (paragraph-aware), 'sentence' (sentence boundaries), or 'fixed' (character count)")
+    max_chunk_size: int = Field(1200, ge=64, le=4096, description="Maximum chunk size in characters")
     overlap: int = Field(50, ge=0, le=512, description="Overlap between consecutive chunks in characters")
 
 

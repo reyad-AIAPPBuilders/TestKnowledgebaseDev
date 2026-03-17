@@ -20,10 +20,11 @@ router = APIRouter(prefix="/api/v1/online", tags=["Online - Ingestion Pipeline"]
     summary="Ingest web content into the RAG pipeline",
     description=(
         "Takes web-scraped or URL-parsed text content and processes it through the full ingestion pipeline:\n\n"
-        "1. **Chunk** — Split content using `fixed`, `sentence`, or `late_chunking` (default) strategy\n"
-        "2. **Classify** — Categorize into one of 9 municipality content types + extract entities\n"
-        "3. **Embed** — Generate dense vectors via OpenAI `text-embedding-3-small` (1536-dim)\n"
-        "4. **Store** — Upsert vectors into the specified Qdrant `collection_name` with metadata\n\n"
+        "1. **Chunk** — Split content using `contextual` (default), `late_chunking`, `sentence`, or `fixed` strategy\n"
+        "2. **Contextual Enrichment** — (when using `contextual` strategy) Prepend AI-generated context to each chunk via OpenAI, improving retrieval accuracy\n"
+        "3. **Classify** — Categorize into one of 9 municipality content types + extract entities\n"
+        "4. **Embed** — Generate dense vectors via OpenAI `text-embedding-3-small` (1536-dim)\n"
+        "5. **Store** — Upsert vectors into the specified Qdrant `collection_name` with metadata\n\n"
         "**Vector modes** (via `vector_config.search_mode`):\n"
         "- `semantic` (default) — stores only dense cosine vectors (dimensionality controlled by `vector_config.vector_size`, default 1536). "
         "Best for pure semantic similarity search.\n"
@@ -63,7 +64,7 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             metadata=metadata_dict,
             collection_name=body.collection_name,
             language=body.language,
-            chunking_strategy=chunking.strategy if chunking else "late_chunking",
+            chunking_strategy=chunking.strategy if chunking else "contextual",
             max_chunk_size=chunking.max_chunk_size if chunking else None,
             chunk_overlap=chunking.overlap if chunking else None,
             vector_size=vcfg.vector_size if vcfg else 1536,
