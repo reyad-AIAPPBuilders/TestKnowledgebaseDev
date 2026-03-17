@@ -244,7 +244,7 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
     "department": "bauamt"
   },
   "filters": {
-    "classification": ["funding"]
+    "content_type": ["funding"]
   },
   "top_k": 10,
   "score_threshold": 0.5
@@ -279,7 +279,7 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
         "chunk_text": "Die Förderung für Solaranlagen beträgt bis zu EUR 5.000...",
         "score": 0.92,
         "source_path": "//server/bauamt/foerderungen/solar_2025.pdf",
-        "classification": "funding",
+        "content_type": ["funding", "renewable_energy"],
         "entities": {
           "amounts": ["EUR 5.000"],
           "deadlines": ["2025-06-30"]
@@ -347,7 +347,7 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
 | `user.roles` | array | No | `[]` | Portal roles |
 | `user.department` | string | No | — | Department for filtering |
 | `filters` | object | No | — | Optional content filters |
-| `filters.classification` | array | No | — | Filter by categories (e.g. `["funding", "policy"]`) |
+| `filters.content_type` | array | No | — | Filter by content types (e.g. `["funding", "policy"]`) |
 | `top_k` | int | No | 10 | Max results (1-100) |
 | `score_threshold` | float | No | 0.5 | Min similarity score (0.0-1.0) |
 
@@ -671,7 +671,7 @@ curl -X POST "https://your-domain/api/v1/online/parse" \
 
 ## `POST /api/v1/online/ingest`
 
-The RAG pipeline endpoint for web content. Takes parsed text and runs: **chunk -> classify -> embed (BGE-M3) -> store (Qdrant)**.
+The RAG pipeline endpoint for web content. Takes parsed text and runs: **chunk -> classify -> embed (OpenAI text-embedding-3-small) -> store (Qdrant)**.
 
 Uses `url` instead of `file_path` to identify the source. The `url` is automatically stored as `source_url` in every Qdrant point's metadata.
 
@@ -736,7 +736,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
     "chunks_created": 4,
     "vectors_stored": 4,
     "collection": "wiener-neudorf",
-    "classification": "funding",
+    "content_type": ["funding", "renewable_energy"],
     "entities_extracted": {
       "dates": 2,
       "contacts": 1,
@@ -791,7 +791,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 | `chunk_index` | pipeline | Position of chunk within document |
 | `source_path` | request `url` | Original source URL |
 | `source_url` | request `url` | Source URL (metadata field) |
-| `classification` | pipeline | Auto-detected content category |
+| `content_type` | pipeline | Auto-detected content categories (array of strings, e.g. `["funding", "renewable_energy"]`) |
 | `language` | request / auto | ISO 639-1 language code |
 | `assistant_id` | metadata | Assistant identifier |
 | `title` | metadata | Document title |
@@ -1082,7 +1082,7 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
     "chunks_created": 8,
     "vectors_stored": 8,
     "collection": "wiener-neudorf",
-    "classification": "policy",
+    "content_type": ["policy", "housing"],
     "entities_extracted": {
       "dates": 3,
       "contacts": 1,
@@ -1213,7 +1213,7 @@ curl -X DELETE "https://your-domain/api/v1/local/vectors/doc_abc123?collection_n
 
 Delete vectors matching metadata filters. All filters are combined with **AND** logic — only points matching every condition are deleted.
 
-**Filterable metadata fields:** `source_id`, `source_type`, `classification`, `acl_visibility`, `acl_department`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
+**Filterable metadata fields:** `source_id`, `source_type`, `content_type`, `acl_visibility`, `acl_department`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
 
 ### Case 1: Delete all vectors from a department
 
@@ -1229,7 +1229,7 @@ curl -X POST "https://your-domain/api/v1/local/vectors/delete-by-filter" \
   }'
 ```
 
-### Case 2: Delete by source type and classification
+### Case 2: Delete by source type and content type
 
 **Request:**
 ```json
@@ -1237,7 +1237,7 @@ curl -X POST "https://your-domain/api/v1/local/vectors/delete-by-filter" \
   "collection_name": "wiener-neudorf",
   "filters": [
     {"key": "source_type", "value": "smb"},
-    {"key": "classification", "value": "funding"}
+    {"key": "content_type", "value": "funding"}
   ]
 }
 ```
@@ -1262,7 +1262,7 @@ curl -X POST "https://your-domain/api/v1/local/vectors/delete-by-filter" \
     "vectors_deleted": 42,
     "filters_applied": [
       {"key": "source_type", "value": "smb"},
-      {"key": "classification", "value": "funding"}
+      {"key": "content_type", "value": "funding"}
     ]
   },
   "request_id": "..."

@@ -4,7 +4,7 @@ import time
 import uuid
 
 from app.config import settings
-from app.services.embedding.bge_m3_client import BGEM3Client, EmbeddingError
+from app.services.embedding.bge_m3_client import EmbeddingError
 from app.services.embedding.qdrant_service import QdrantError, QdrantService
 from app.services.intelligence.chunker import Chunker
 from app.services.intelligence.classifier import Classifier
@@ -26,7 +26,7 @@ class IngestResult:
         chunks_created: int,
         vectors_stored: int,
         collection: str,
-        classification: str,
+        classification: list[str],
         entities_extracted: dict,
         embedding_time_ms: int,
         total_time_ms: int,
@@ -48,7 +48,7 @@ class IngestService:
         self,
         chunker: Chunker,
         classifier: Classifier,
-        embedder: BGEM3Client,
+        embedder,
         qdrant: QdrantService,
     ) -> None:
         self._chunker = chunker
@@ -109,7 +109,10 @@ class IngestService:
             log.warning("ingest_classify_fallback", source_id=source_id, error=str(e))
             classify_result = None
 
-        classification = classify_result.category.value if classify_result else "general"
+        if classify_result:
+            classification = [classify_result.category.value] + classify_result.sub_categories
+        else:
+            classification = ["general"]
         entities_extracted = {
             "dates": len(classify_result.entities.dates) if classify_result else 0,
             "contacts": len(classify_result.entities.contacts) if classify_result else 0,
@@ -141,7 +144,7 @@ class IngestService:
                 "chunk_text": chunk_text,
                 "chunk_index": i,
                 "source_path": file_path,
-                "classification": classification,
+                "content_type": classification,
                 "language": language or "de",
                 # Metadata
                 "assistant_id": metadata.get("assistant_id", ""),

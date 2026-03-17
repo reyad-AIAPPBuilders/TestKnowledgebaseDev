@@ -92,7 +92,7 @@ class LocalIngestData(BaseModel):
     chunks_created: int = Field(..., description="Number of text chunks created")
     vectors_stored: int = Field(..., description="Number of vectors stored in Qdrant")
     collection: str = Field(..., description="Qdrant collection name")
-    classification: str = Field(..., description="Auto-detected content category")
+    content_type: list[str] = Field(..., description="Auto-detected content categories (e.g. ['funding', 'renewable_energy'])")
     entities_extracted: LocalEntityCounts = Field(..., description="Entity extraction counts")
     embedding_time_ms: int = Field(..., description="Time spent on BGE-M3 embedding (ms)")
     total_time_ms: int = Field(..., description="Total pipeline duration (ms)")

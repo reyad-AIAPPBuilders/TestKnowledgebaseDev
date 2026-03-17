@@ -77,7 +77,7 @@ async def ingest_local(body: LocalIngestRequest, request: Request) -> ResponseEn
             chunks_created=result.chunks_created,
             vectors_stored=result.vectors_stored,
             collection=result.collection,
-            classification=result.classification,
+            content_type=result.classification,
             entities_extracted=LocalEntityCounts(
                 dates=result.entities_extracted.get("dates", 0),
                 contacts=result.entities_extracted.get("contacts", 0),

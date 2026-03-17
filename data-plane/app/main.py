@@ -21,6 +21,7 @@ from app.services.discovery.discovery_service import DiscoveryService
 from app.services.discovery.r2_client import R2Client
 from app.services.discovery.smb_client import SMBClient
 from app.services.embedding.bge_m3_client import BGEM3Client
+from app.services.embedding.openai_client import OpenAIEmbedClient
 from app.services.embedding.qdrant_service import QdrantService
 from app.services.ingest.ingest_service import IngestService
 from app.services.intelligence.chunker import Chunker
@@ -68,6 +69,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await embedder.startup()
     app.state.embedder = embedder
 
+    openai_embedder = OpenAIEmbedClient()
+    await openai_embedder.startup()
+    app.state.openai_embedder = openai_embedder
+
     qdrant = QdrantService()
     await qdrant.startup()
     app.state.qdrant = qdrant
@@ -82,6 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # ── Ingest + Search ──────────────────────────────
     chunker = Chunker()
     app.state.ingest = IngestService(chunker, classifier, embedder, qdrant)
+    app.state.online_ingest = IngestService(chunker, classifier, openai_embedder, qdrant)
     app.state.search = SearchService(embedder, qdrant)
 
     log.info("app_started", mode=settings.mode, version=settings.version)
@@ -91,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await scraping_svc.shutdown()
     await parser_svc.shutdown()
     await embedder.shutdown()
+    await openai_embedder.shutdown()
     await qdrant.shutdown()
     await r2_client.shutdown()
     await sitemap_parser.close()
@@ -153,7 +160,7 @@ tags_metadata = [
     },
     {
         "name": "Online - Ingestion Pipeline",
-        "description": "Full RAG ingestion pipeline for web-scraped content: chunk → classify → embed (BGE-M3) → store (Qdrant).\n\n"
+        "description": "Full RAG ingestion pipeline for web-scraped content: chunk → classify → embed (OpenAI text-embedding-3-small) → store (Qdrant).\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
     },
     {

@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/online", tags=["Online - Ingestion Pipeline"]
         "Takes web-scraped or URL-parsed text content and processes it through the full ingestion pipeline:\n\n"
         "1. **Chunk** — Split content using `fixed`, `sentence`, or `late_chunking` (default) strategy\n"
         "2. **Classify** — Categorize into one of 9 municipality content types + extract entities\n"
-        "3. **Embed** — Generate dense + optional sparse vectors via BGE-M3\n"
+        "3. **Embed** — Generate dense vectors via OpenAI `text-embedding-3-small` (1536-dim)\n"
         "4. **Store** — Upsert vectors into the specified Qdrant `collection_name` with metadata\n\n"
         "**Vector modes** (via `vector_config.search_mode`):\n"
         "- `semantic` (default) — stores only dense cosine vectors (dimensionality controlled by `vector_config.vector_size`, default 1536). "
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/v1/online", tags=["Online - Ingestion Pipeline"]
 )
 async def ingest_online(body: OnlineIngestRequest, request: Request) -> ResponseEnvelope[OnlineIngestData]:
     request_id = request.state.request_id
-    ingest_svc = request.app.state.ingest
+    ingest_svc = request.app.state.online_ingest
 
     if not body.content.strip():
         return ResponseEnvelope(
@@ -86,7 +86,7 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             chunks_created=result.chunks_created,
             vectors_stored=result.vectors_stored,
             collection=result.collection,
-            classification=result.classification,
+            content_type=result.classification,
             entities_extracted=OnlineEntityCounts(
                 dates=result.entities_extracted.get("dates", 0),
                 contacts=result.entities_extracted.get("contacts", 0),
