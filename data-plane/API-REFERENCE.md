@@ -280,14 +280,14 @@ Permission-aware semantic search. **No search is ever unfiltered** — every req
         "score": 0.92,
         "source_path": "//server/bauamt/foerderungen/solar_2025.pdf",
         "content_type": ["funding", "renewable_energy"],
+        "organization_id": "org_wiener_neudorf",
+        "department": ["Bauamt"],
         "entities": {
           "amounts": ["EUR 5.000"],
           "deadlines": ["2025-06-30"]
         },
         "metadata": {
           "title": "Solarförderung 2025",
-          "organization_id": "org_wiener_neudorf",
-          "department": "bauamt",
           "source_type": "smb"
         }
       }
@@ -1181,7 +1181,7 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
       "source_type": "smb",
       "mime_type": "application/pdf",
       "organization_id": "org_wiener_neudorf",
-      "department": "bauamt"
+      "department": ["Bauamt"]
     },
     "chunking": {
       "strategy": "late_chunking",
@@ -1275,8 +1275,8 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
 | `uploaded_by` | string | No | User or service that uploaded |
 | `source_type` | string | No | `smb`, `r2`, or `web` |
 | `mime_type` | string | No | Original file MIME type |
-| `organization_id` | string | No | Organization/tenant ID |
-| `department` | string | No | Department within organization |
+| `organization_id` | string | No | Organization/tenant ID (stored at payload root in Qdrant) |
+| `department` | array of strings | No | Departments within organization (stored at payload root in Qdrant) |
 
 ### Chunking config
 
