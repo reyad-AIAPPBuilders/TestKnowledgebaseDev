@@ -111,7 +111,6 @@ class LlamaParser(BaseParser):
             files = {"file": (filename, f, "application/octet-stream")}
             data: dict[str, str] = {
                 "result_type": "markdown",
-                "language": options.ocr_language.split("+")[0] if options.ocr_language else "en",
             }
             if not options.extract_tables:
                 data["skip_diagonal_text"] = "true"
