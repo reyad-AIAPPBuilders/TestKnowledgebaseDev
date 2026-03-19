@@ -1,6 +1,6 @@
 """
-POST /api/v1/local/parse        — Parse a document from SMB or R2 source.
-POST /api/v1/local/parse/upload — Parse an uploaded document file.
+POST /api/v1/local/document-parse        — Parse a document from SMB or R2 source.
+POST /api/v1/local/document-parse/upload — Parse an uploaded document file.
 """
 
 import os
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1/local", tags=["Local - Document Parsing"])
 
 
 @router.post(
-    "/parse",
+    "/document-parse",
     summary="Parse a local document",
     description="Extract text, tables, and metadata from a document on SMB or R2.\n\n"
     "**Sources:**\n"
@@ -58,10 +58,18 @@ async def parse_local(body: LocalParseRequest, request: Request) -> ResponseEnve
 
 
 @router.post(
-    "/parse/upload",
+    "/document-parse/upload",
     summary="Parse an uploaded document",
     description="Upload a document file directly and extract text, tables, and metadata.\n\n"
-    "Supports the same formats as `/local/parse`: PDF, DOCX, DOC, PPTX, ODT, XLSX, XLS, TXT, CSV, HTML, RTF.",
+    "**Content-Type:** `multipart/form-data` — send the raw binary file in the `file` form field.\n"
+    "Do **not** base64-encode the file; send the original binary document as-is.\n\n"
+    "**Supported formats:** PDF, DOCX, DOC, PPTX, ODT, XLSX, XLS, TXT, CSV, HTML, RTF.\n\n"
+    "**Example (cURL):**\n"
+    "```\n"
+    "curl -X POST /api/v1/local/document-parse/upload -F \"file=@report.pdf\"\n"
+    "```\n\n"
+    "**Error codes:** `PARSE_FAILED`, `PARSE_ENCRYPTED`, `PARSE_CORRUPTED`, `PARSE_EMPTY`, "
+    "`PARSE_TIMEOUT`, `PARSE_UNSUPPORTED_FORMAT`",
     response_description="Extracted text content with page count, language, and table count",
 )
 async def parse_upload(request: Request, file: UploadFile = File(...)) -> ResponseEnvelope[LocalParseData]:

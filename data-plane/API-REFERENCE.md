@@ -30,7 +30,7 @@ Update the knowledgebase using online URLs and cloud services.
 
 ### 2. Local Mode — Fully Offline Document Processing
 Process documents entirely locally without any third-party APIs.
-- Upload documents via `POST /api/v1/local/parse/upload` or read from SMB file shares
+- Upload documents via `POST /api/v1/local/document-parse/upload` or read from SMB file shares
 - Parse locally with PyMuPDF (PDF) + python-docx (DOCX) — lightweight, no GPU needed
 - All local endpoints live under `/api/v1/local/`
 - Requires: Only Qdrant + BGE-M3
@@ -203,7 +203,7 @@ Classify content into 9 categories and extract structured entities. Designed for
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `content` | string | Yes | — | Text to classify (from `/online/parse`, `/local/parse`, or `/online/scrape`) |
+| `content` | string | Yes | — | Text to classify (from `/online/document-parse`, `/local/document-parse`, or `/online/scrape`) |
 | `language` | string | No | `de` | ISO 639-1 language code |
 
 ### Extracted entities
@@ -586,7 +586,7 @@ curl -X POST "https://your-domain/api/v1/online/crawl" \
 
 ---
 
-## `POST /api/v1/online/parse`
+## `POST /api/v1/online/document-parse`
 
 Parse a document from a public URL. Uses LlamaParse (cloud) when `LLAMA_CLOUD_API_KEY` is set, otherwise falls back to local parsers.
 
@@ -594,7 +594,7 @@ Parse a document from a public URL. Uses LlamaParse (cloud) when `LLAMA_CLOUD_AP
 
 **Request:**
 ```bash
-curl -X POST "https://your-domain/api/v1/online/parse" \
+curl -X POST "https://your-domain/api/v1/online/document-parse" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -624,7 +624,7 @@ curl -X POST "https://your-domain/api/v1/online/parse" \
 {
   "success": true,
   "data": {
-    "file_path": "https://pdfobject.com/pdf/sample.pdf",
+    "url": "https://pdfobject.com/pdf/sample.pdf",
     "content": "This is a simple PDF file. Fun fun fun...",
     "pages": 2,
     "language": "en",
@@ -641,6 +641,69 @@ curl -X POST "https://your-domain/api/v1/online/parse" \
 |-------|------|----------|-------------|
 | `url` | string | Yes | Public URL of the document to parse |
 | `mime_type` | string | No | MIME type. Auto-detected from URL if omitted. |
+
+### Error codes
+`PARSE_FAILED`, `PARSE_ENCRYPTED`, `PARSE_CORRUPTED`, `PARSE_EMPTY`, `PARSE_TIMEOUT`, `PARSE_UNSUPPORTED_FORMAT`
+
+---
+
+## `POST /api/v1/online/document-parse/upload`
+
+Upload a raw document file directly for parsing via `multipart/form-data`.
+
+Send the **original binary file** in the `file` form field — do **not** base64-encode it. The server auto-detects the file type from the filename extension and content type.
+
+**Supported formats:** PDF, DOCX, DOC, PPTX, ODT, XLSX, XLS, TXT, CSV, HTML, RTF
+
+**Request (cURL):**
+```bash
+curl -X POST "https://your-domain/api/v1/online/document-parse/upload" \
+  -H "X-API-Key: your-api-key" \
+  -F "file=@/path/to/document.pdf"
+```
+
+**Request (Python — requests):**
+```python
+import requests
+
+with open("report.pdf", "rb") as f:
+    response = requests.post(
+        "https://your-domain/api/v1/online/document-parse/upload",
+        headers={"X-API-Key": "your-api-key"},
+        files={"file": ("report.pdf", f, "application/pdf")},
+    )
+print(response.json())
+```
+
+**Request (JavaScript — fetch):**
+```javascript
+const formData = new FormData();
+formData.append("file", fileInput.files[0]);  // raw File object from <input type="file">
+
+const response = await fetch("/api/v1/online/document-parse/upload", {
+  method: "POST",
+  headers: { "X-API-Key": "your-api-key" },
+  body: formData,
+});
+```
+
+**Request (Swagger UI):** Click "Try it out", choose a file, and execute.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "url": "document.pdf",
+    "content": "Extracted text content from the uploaded PDF...",
+    "pages": 5,
+    "language": "de",
+    "extracted_tables": 1,
+    "content_length": 8500
+  },
+  "request_id": "..."
+}
+```
 
 ### Error codes
 `PARSE_FAILED`, `PARSE_ENCRYPTED`, `PARSE_CORRUPTED`, `PARSE_EMPTY`, `PARSE_TIMEOUT`, `PARSE_UNSUPPORTED_FORMAT`
@@ -734,7 +797,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 | `collection_name` | string | Yes | — | Qdrant collection to store in (auto-created if missing) |
 | `source_id` | string | Yes | — | Unique document ID (for updates/deletes) |
 | `url` | string | Yes | — | Source URL — stored as `source_url` in Qdrant point metadata |
-| `content` | string | Yes | — | Parsed text from `/online/scrape` or `/online/parse` |
+| `content` | string | Yes | — | Parsed text from `/online/scrape` or `/online/document-parse` |
 | `language` | string | No | auto-detect | ISO 639-1 language code |
 | `metadata` | object | Yes | — | Document metadata (see Online Metadata object below) |
 | `chunking` | object | No | defaults | Chunking configuration (see Chunking config below) |
@@ -906,7 +969,7 @@ curl -X POST "https://your-domain/api/v1/online/vectors/delete-by-filter" \
 
 Local endpoints do **not** require an `X-API-Key` header. They are designed for trusted network environments (on-premise, internal network).
 
-## `POST /api/v1/local/parse`
+## `POST /api/v1/local/document-parse`
 
 Parse a document from an SMB file share or Cloudflare R2 bucket. Uses local parsers: PyMuPDF for PDF, python-docx for DOCX, SpreadsheetParser for XLSX/XLS, TextParser for TXT/CSV/HTML/RTF.
 
@@ -916,7 +979,7 @@ Parse a document from an SMB file share or Cloudflare R2 bucket. Uses local pars
 
 **Request:**
 ```bash
-curl -X POST "https://your-domain/api/v1/local/parse" \
+curl -X POST "https://your-domain/api/v1/local/document-parse" \
   -H "Content-Type: application/json" \
   -d '{
     "file_path": "//server/bauamt/dokumente/antrag_001.pdf",
@@ -1013,14 +1076,30 @@ curl -X POST "https://your-domain/api/v1/local/parse" \
 
 ---
 
-## `POST /api/v1/local/parse/upload`
+## `POST /api/v1/local/document-parse/upload`
 
-Upload a document file directly for parsing. Uses `multipart/form-data`.
+Upload a raw document file directly for parsing via `multipart/form-data`.
+
+Send the **original binary file** in the `file` form field — do **not** base64-encode it. The server auto-detects the file type from the filename extension and content type.
+
+**Supported formats:** PDF, DOCX, DOC, PPTX, ODT, XLSX, XLS, TXT, CSV, HTML, RTF
 
 **Request (cURL):**
 ```bash
-curl -X POST "https://your-domain/api/v1/local/parse/upload" \
+curl -X POST "https://your-domain/api/v1/local/document-parse/upload" \
   -F "file=@/path/to/document.pdf"
+```
+
+**Request (Python — requests):**
+```python
+import requests
+
+with open("report.pdf", "rb") as f:
+    response = requests.post(
+        "https://your-domain/api/v1/local/document-parse/upload",
+        files={"file": ("report.pdf", f, "application/pdf")},
+    )
+print(response.json())
 ```
 
 **Request (Swagger UI):** Click "Try it out", choose a file, and execute.
@@ -1228,7 +1307,7 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
 | `collection_name` | string | Yes | — | Qdrant collection to store in |
 | `source_id` | string | Yes | — | Unique document ID (for updates/deletes) |
 | `file_path` | string | Yes | — | Original file path (SMB path or R2 key) |
-| `content` | string | Yes | — | Parsed text from `/local/parse` or `/local/parse/upload` |
+| `content` | string | Yes | — | Parsed text from `/local/document-parse` or `/local/document-parse/upload` |
 | `language` | string | No | auto-detect | ISO 639-1 language code |
 | `acl` | object | Yes | — | Access control list (see ACL object below) |
 | `metadata` | object | Yes | — | Document metadata (see Metadata object below) |
@@ -1460,7 +1539,8 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 |--------|----------|---------|------|
 | POST | `/api/v1/online/scrape` | Scrape webpage (Crawl4AI) | HMAC + API Key |
 | POST | `/api/v1/online/crawl` | Discover URLs from site/sitemap | HMAC + API Key |
-| POST | `/api/v1/online/parse` | Parse document from URL | HMAC + API Key |
+| POST | `/api/v1/online/document-parse` | Parse document from URL | HMAC + API Key |
+| POST | `/api/v1/online/document-parse/upload` | Parse uploaded file | HMAC + API Key |
 | POST | `/api/v1/online/ingest` | Chunk + embed + store web content | HMAC + API Key |
 | DELETE | `/api/v1/online/vectors/{source_id}` | Delete document vectors | HMAC + API Key |
 | POST | `/api/v1/online/vectors/delete-by-filter` | Delete vectors by metadata filter | HMAC + API Key |
@@ -1469,8 +1549,8 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 
 | Method | Endpoint | Purpose | Auth |
 |--------|----------|---------|------|
-| POST | `/api/v1/local/parse` | Parse document (SMB, R2) | HMAC |
-| POST | `/api/v1/local/parse/upload` | Parse uploaded file | HMAC |
+| POST | `/api/v1/local/document-parse` | Parse document (SMB, R2) | HMAC |
+| POST | `/api/v1/local/document-parse/upload` | Parse uploaded file | HMAC |
 | POST | `/api/v1/local/discover` | Scan file sources for changes | HMAC |
 | POST | `/api/v1/local/ingest` | Chunk + embed + store local docs | HMAC |
 | DELETE | `/api/v1/local/vectors/{source_id}` | Delete document vectors | HMAC |

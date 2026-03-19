@@ -131,9 +131,9 @@ tags_metadata = [
         "name": "Local - Document Parsing",
         "description": "Extract text, tables, and metadata from documents via file upload, SMB, or R2.\n\n"
         "**Input methods:**\n"
-        "- `POST /local/parse` with `source: smb` — parse from mounted file share\n"
-        "- `POST /local/parse` with `source: r2` — parse from Cloudflare R2 via presigned URL\n"
-        "- `POST /local/parse/upload` — upload a file directly\n\n"
+        "- `POST /local/document-parse` with `source: smb` — parse from mounted file share\n"
+        "- `POST /local/document-parse` with `source: r2` — parse from Cloudflare R2 via presigned URL\n"
+        "- `POST /local/document-parse/upload` — upload a file directly\n\n"
         "**Supported formats:** PDF, DOCX, DOC, PPTX, ODT, XLSX, XLS, TXT, CSV, HTML, RTF.\n\n"
         "**Parser backends** (auto-selected at startup):\n"
         "- **LlamaParse** (cloud) — `LLAMA_CLOUD_API_KEY` set → high-quality markdown extraction via LlamaCloud API\n"
@@ -162,7 +162,10 @@ tags_metadata = [
     },
     {
         "name": "Online - Document Parsing",
-        "description": "Parse documents from public URLs.\n\n"
+        "description": "Parse documents from public URLs or upload document files directly.\n\n"
+        "**Input methods:**\n"
+        "- `POST /online/document-parse` — parse from a public URL\n"
+        "- `POST /online/document-parse/upload` — upload a file directly\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
     },
     {
@@ -207,7 +210,7 @@ app = FastAPI(
         "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification)\n\n"
         "### 2. Local Mode — Fully Offline Document Processing (`/api/v1/local/...`)\n"
         "Process documents entirely locally without any third-party APIs. **No API key required.**\n"
-        "- **Upload** documents directly via `POST /local/parse/upload` or read from **SMB file shares**\n"
+        "- **Upload** documents directly via `POST /local/document-parse/upload` or read from **SMB file shares**\n"
         "- **Parse** locally using **PyMuPDF** (PDF) and **python-docx** (DOCX) — lightweight, no GPU or heavy dependencies\n"
         "- **Discover** files from SMB shares with NTFS ACL extraction\n"
         "- Requires: No external API keys — only Qdrant and BGE-M3 for embedding/search\n\n"

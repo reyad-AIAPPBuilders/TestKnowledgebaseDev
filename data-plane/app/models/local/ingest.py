@@ -35,7 +35,7 @@ class LocalIngestRequest(BaseModel):
     collection_name: str = Field(..., description="Qdrant collection name to store vectors in")
     source_id: str = Field(..., description="Unique document ID. Used for updates and deletes.")
     file_path: str = Field(..., description="Original file path (stored as metadata)")
-    content: str = Field(..., min_length=1, description="Parsed text content (from /local/parse)")
+    content: str = Field(..., min_length=1, description="Parsed text content (from /local/document-parse)")
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
     acl: ACL = Field(..., description="Access control list. Every document must have visibility set.")
     metadata: LocalIngestMetadata = Field(..., description="Document metadata stored alongside vectors")

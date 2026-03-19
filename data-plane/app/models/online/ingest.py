@@ -53,7 +53,7 @@ class OnlineIngestRequest(BaseModel):
     collection_name: str = Field(..., description="Qdrant collection name to store vectors in")
     source_id: str = Field(..., description="Unique document ID. Used for updates and deletes.")
     url: str = Field(..., description="Source URL (stored as source_url in Qdrant point metadata)")
-    content: str = Field(..., min_length=1, description="Parsed/scraped text content (from /online/scrape or /online/parse)")
+    content: str = Field(..., min_length=1, description="Parsed/scraped text content (from /online/scrape or /online/document-parse)")
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
     metadata: OnlineIngestMetadata = Field(..., description="Document metadata stored alongside vectors")
     chunking: OnlineChunkingConfig | None = Field(None, description="Override default chunking settings")
