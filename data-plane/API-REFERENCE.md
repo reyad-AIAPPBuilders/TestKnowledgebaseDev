@@ -793,7 +793,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
       "assistant_id": "asst_wiener_neudorf_01",
       "title": "Förderungen - Gemeinde Wiener Neudorf",
       "source_type": "web",
-      "organization_id": "org_wiener_neudorf",
+      "municipality_id": "wiener-neudorf",
       "department": ["Bürgerservice", "Förderungen"]
     }
   }'
@@ -814,7 +814,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
       "assistant_id": "asst_wiener_neudorf_01",
       "title": "Förderungen - Gemeinde Wiener Neudorf",
       "source_type": "web",
-      "organization_id": "org_wiener_neudorf",
+      "municipality_id": "wiener-neudorf",
       "department": ["Bürgerservice"]
     },
     "vector_config": {
@@ -861,15 +861,19 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 
 ### Online Metadata object
 
+At least one of `assistant_id` or `municipality_id` must be provided. If neither is set, the request will fail with a validation error.
+
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `assistant_id` | string | Yes | — | Identifier of the assistant that owns this content |
+| `assistant_id` | string | No* | `null` | Identifier of the assistant that owns this content |
 | `title` | string | No | `null` | Document/page title (shown in search results) |
 | `uploaded_by` | string | No | `null` | User or service that triggered ingestion |
 | `source_type` | string | No | `"web"` | Origin type (typically `web` for online content) |
 | `mime_type` | string | No | `null` | Original content MIME type |
-| `organization_id` | string | No | `null` | Organization/tenant identifier |
+| `municipality_id` | string | No* | `null` | Municipality/tenant identifier |
 | `department` | array of strings | No | `[]` | Departments within the organization |
+
+> *At least one of `assistant_id` or `municipality_id` must be provided.
 
 ### Vector config
 
@@ -881,6 +885,8 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 ### Qdrant point payload structure
 
 The payload has top-level fields for tenant/agent isolation (`organization_id`, `assistant_id`, `department`), plus `content` and nested `metadata`.
+
+> **Note:** The API request field `municipality_id` is stored as `organization_id` in the Qdrant payload.
 
 ```json
 {

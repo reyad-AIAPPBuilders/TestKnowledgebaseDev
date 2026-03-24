@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SearchMode(str, Enum):
@@ -28,13 +28,19 @@ class OnlineVectorConfig(BaseModel):
 class OnlineIngestMetadata(BaseModel):
     """Additional metadata attached to every vector in Qdrant."""
 
-    assistant_id: str = Field(..., description="Identifier of the assistant that owns this content")
+    assistant_id: str | None = Field(None, description="Identifier of the assistant that owns this content. At least one of assistant_id or municipality_id must be provided.")
     title: str | None = Field(None, description="Document/page title (shown in search results)")
     uploaded_by: str | None = Field(None, description="User or service that triggered the ingestion")
     source_type: str | None = Field("web", description="Origin: typically 'web' for online content")
     mime_type: str | None = Field(None, description="Original content MIME type")
-    organization_id: str | None = Field(None, description="Organization/tenant identifier")
+    municipality_id: str | None = Field(None, description="Municipality/tenant identifier. At least one of assistant_id or municipality_id must be provided.")
     department: list[str] = Field(default_factory=list, description="Departments within the organization")
+
+    @model_validator(mode="after")
+    def check_at_least_one_id(self) -> "OnlineIngestMetadata":
+        if not self.assistant_id and not self.municipality_id:
+            raise ValueError("At least one of 'assistant_id' or 'municipality_id' must be provided")
+        return self
 
 
 class OnlineIngestRequest(BaseModel):
@@ -72,7 +78,7 @@ class OnlineIngestRequest(BaseModel):
                         "assistant_id": "asst_wiener_neudorf_01",
                         "title": "Förderungen - Gemeinde Wiener Neudorf",
                         "source_type": "web",
-                        "organization_id": "org_wiener_neudorf",
+                        "municipality_id": "wiener-neudorf",
                         "department": ["Bürgerservice", "Förderungen"],
                     },
                     "vector_config": {

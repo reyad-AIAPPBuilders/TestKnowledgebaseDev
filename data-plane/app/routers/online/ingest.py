@@ -54,6 +54,8 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
     vcfg = body.vector_config
     metadata_dict = body.metadata.model_dump()
     metadata_dict["source_url"] = body.url
+    # Map municipality_id → organization_id for Qdrant payload compatibility
+    metadata_dict["organization_id"] = metadata_dict.pop("municipality_id", None) or ""
 
     try:
         result = await ingest_svc.ingest(
