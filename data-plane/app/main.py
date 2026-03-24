@@ -13,6 +13,7 @@ from app.routers.local import discover as local_discover
 from app.routers.local import ingest as local_ingest
 from app.routers.local import parse as local_parse
 from app.routers.local import vectors as local_vectors
+from app.routers.online import collections as online_collections
 from app.routers.online import ingest as online_ingest
 from app.routers.online import parse as online_parse
 from app.routers.online import scrape as online_scrape
@@ -156,6 +157,11 @@ tags_metadata = [
         "- `PUT /local/vectors/update-acl` — update ACL payload on vectors without re-embedding",
     },
     {
+        "name": "Online - Collection Management",
+        "description": "List and inspect available Qdrant collections.\n\n"
+        "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
+    },
+    {
         "name": "Online - Web Scraping",
         "description": "Scrape webpages via Crawl4AI and discover URLs from sitemaps or BFS crawling.\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
@@ -255,6 +261,7 @@ app.include_router(local_discover.router)
 app.include_router(local_vectors.router)
 
 # ── Online Routers (API key required) ─────────────────
+app.include_router(online_collections.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_scrape.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_parse.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_ingest.router, dependencies=[Depends(require_api_key)])

@@ -48,6 +48,52 @@ class QdrantService:
 
     # ── Collection management ────────────────────────────────────────
 
+    async def list_collections(self) -> list[dict]:
+        """List all Qdrant collections with basic info (name, vectors_count, points_count, status)."""
+        if not self._client:
+            raise QdrantError("Qdrant client not initialized")
+
+        try:
+            resp = await self._client.get("/collections")
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise QdrantError(f"Failed to list collections: {e.response.text}") from e
+        except httpx.RequestError as e:
+            raise QdrantError(f"Qdrant connection failed: {e}") from e
+
+        collections = resp.json().get("result", {}).get("collections", [])
+
+        result = []
+        for col in collections:
+            name = col.get("name", "")
+            try:
+                stats = await self.collection_stats(name)
+                vectors_count = stats.get("vectors_count", stats.get("points_count", 0))
+                points_count = stats.get("points_count", 0)
+                status = stats.get("status", "unknown")
+                disk_bytes = stats.get("disk_data_size", 0)
+                disk_mb = round(disk_bytes / (1024 * 1024), 1) if disk_bytes else 0.0
+                segments_count = stats.get("segments_count", 0)
+                result.append({
+                    "name": name,
+                    "vectors_count": vectors_count,
+                    "points_count": points_count,
+                    "segments_count": segments_count,
+                    "disk_usage_mb": disk_mb,
+                    "status": status,
+                })
+            except QdrantError:
+                result.append({
+                    "name": name,
+                    "vectors_count": 0,
+                    "points_count": 0,
+                    "segments_count": 0,
+                    "disk_usage_mb": 0.0,
+                    "status": "unknown",
+                })
+
+        return result
+
     async def create_collection(
         self,
         name: str,

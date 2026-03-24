@@ -49,3 +49,21 @@ class CollectionStatsData(BaseModel):
     disk_usage_mb: float = Field(..., description="Disk space used in megabytes")
     by_classification: dict[str, int] = Field(..., description="Vector count by content category")
     by_visibility: dict[str, int] = Field(..., description="Vector count by visibility level")
+
+
+class CollectionInfo(BaseModel):
+    """Basic info about a single Qdrant collection."""
+
+    name: str = Field(..., description="Collection name")
+    vectors_count: int = Field(..., description="Total number of vectors stored")
+    points_count: int = Field(..., description="Total number of points stored")
+    segments_count: int = Field(..., description="Number of segments")
+    disk_usage_mb: float = Field(..., description="Disk space used in megabytes")
+    status: str = Field(..., description="Collection status (green, yellow, red, unknown)")
+
+
+class AvailableCollectionsData(BaseModel):
+    """List of available Qdrant collections."""
+
+    total: int = Field(..., description="Total number of collections")
+    collections: list[CollectionInfo] = Field(..., description="List of collections with info")

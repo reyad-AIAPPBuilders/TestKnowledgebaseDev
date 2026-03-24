@@ -434,6 +434,62 @@ GET /api/v1/collections/stats?collection_name=wiener-neudorf
 
 All online endpoints require the `X-API-Key` header (configured via `DP_ONLINE_API_KEYS` env var). These endpoints handle web content and cloud-based document processing.
 
+## `GET /api/v1/online/available_collections`
+
+List all available Qdrant collections with basic information including vector count, point count, segments, disk usage, and status.
+
+**Request:**
+```bash
+curl -X GET "https://your-domain/api/v1/online/available_collections" \
+  -H "X-API-Key: your-api-key"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "total": 2,
+    "collections": [
+      {
+        "name": "wiener-neudorf",
+        "vectors_count": 12450,
+        "points_count": 12450,
+        "segments_count": 4,
+        "disk_usage_mb": 245.5,
+        "status": "green"
+      },
+      {
+        "name": "test-collection",
+        "vectors_count": 500,
+        "points_count": 500,
+        "segments_count": 1,
+        "disk_usage_mb": 12.3,
+        "status": "green"
+      }
+    ]
+  },
+  "request_id": "..."
+}
+```
+
+### Response fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | int | Total number of collections |
+| `collections[].name` | string | Collection name |
+| `collections[].vectors_count` | int | Total vectors stored |
+| `collections[].points_count` | int | Total points stored |
+| `collections[].segments_count` | int | Number of segments |
+| `collections[].disk_usage_mb` | float | Disk usage in MB |
+| `collections[].status` | string | Collection status (`green`, `yellow`, `red`, `unknown`) |
+
+### Error codes
+`QDRANT_CONNECTION_FAILED`
+
+---
+
 ## `POST /api/v1/online/scrape`
 
 Scrape a single webpage using Crawl4AI with JavaScript rendering. Results are cached in Redis.
