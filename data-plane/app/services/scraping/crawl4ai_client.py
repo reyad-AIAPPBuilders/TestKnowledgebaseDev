@@ -278,18 +278,21 @@ def _extract_markdown(markdown_value: object) -> str:
     if isinstance(markdown_value, str):
         return markdown_value
     if isinstance(markdown_value, dict):
-        for key in ("raw_markdown", "markdown_with_citations", "fit_markdown"):
+        # Prefer fit_markdown (main content only, no nav/header/footer/cookie noise)
+        # over raw_markdown (full page including all boilerplate)
+        for key in ("fit_markdown", "markdown_with_citations", "raw_markdown"):
             value = markdown_value.get(key)
-            if isinstance(value, str) and value:
+            if isinstance(value, str) and value.strip():
                 return value
         return ""
     return ""
 
 
 def _extract_html(result_data: dict) -> str:
-    for key in ("html", "cleaned_html", "fit_html"):
+    # Prefer cleaned_html (noise elements removed) over raw html
+    for key in ("cleaned_html", "fit_html", "html"):
         value = result_data.get(key)
-        if isinstance(value, str) and value:
+        if isinstance(value, str) and value.strip():
             return value
     return ""
 
