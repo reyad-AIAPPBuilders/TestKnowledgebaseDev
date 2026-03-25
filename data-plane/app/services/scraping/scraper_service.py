@@ -53,6 +53,7 @@ class ScrapeResult(BaseModel):
     url: str
     status: str
     markdown: str | None = None
+    html: str | None = None
     metadata: PageMetadata = Field(default_factory=PageMetadata)
     discovered_documents: list[DiscoveredDocument] = Field(default_factory=list)
     discovered_links: list[str] = Field(default_factory=list)
@@ -213,6 +214,7 @@ class ScraperService:
                 url=url,
                 status=ScrapeStatus.SUCCESS,
                 markdown=markdown,
+                html=html,
                 metadata=metadata,
                 discovered_documents=discovered_docs,
                 discovered_links=discovered_links,

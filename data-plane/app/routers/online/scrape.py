@@ -3,11 +3,22 @@ POST /api/v1/online/scrape — Scrape a single webpage (Crawl4AI)
 POST /api/v1/online/crawl  — Discover URLs from site/sitemap
 """
 
+import asyncio
+
 from fastapi import APIRouter, Request
 
 from app.models.common import ErrorCode, ResponseEnvelope
-from app.models.online.scrape import CrawlData, CrawlRequest, CrawlUrl, ScrapeData, ScrapeRequest
-from app.services.scraping.document_discovery import document_type
+from app.models.online.scrape import (
+    CrawlData,
+    CrawlRequest,
+    CrawlUrl,
+    InnerDocData,
+    InnerImageData,
+    ScrapeData,
+    ScrapeRequest,
+)
+from app.services.parsing.models import ParseStatus
+from app.services.scraping.document_discovery import discover_images, document_type
 from app.services.scraping.scraper_service import ScrapeOptions, ScrapeStatus
 from app.utils.logger import get_logger
 
@@ -66,6 +77,22 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             request_id=request_id,
         )
 
+    # ── Parse inner images if requested ──
+    inner_images: list[InnerImageData] | None = None
+    if body.inner_img and result.html:
+        discovered = discover_images(result.html, body.url)
+        if discovered:
+            parser = request.app.state.parser
+            inner_images = await _parse_inner_images(parser, discovered, request_id)
+
+    # ── Parse inner documents if requested ──
+    inner_documents: list[InnerDocData] | None = None
+    if body.inner_docs and result.discovered_documents:
+        parser = request.app.state.parser
+        inner_documents = await _parse_inner_documents(
+            parser, result.discovered_documents, request_id
+        )
+
     return ResponseEnvelope(
         success=True,
         data=ScrapeData(
@@ -76,6 +103,8 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             language=result.metadata.language,
             links_found=len(result.discovered_links),
             last_modified=None,
+            inner_images=inner_images,
+            inner_documents=inner_documents,
         ),
         request_id=request_id,
     )
@@ -152,6 +181,80 @@ async def crawl(body: CrawlRequest, request: Request) -> ResponseEnvelope[CrawlD
         ),
         request_id=request_id,
     )
+
+
+async def _parse_inner_images(
+    parser, images: list, request_id: str
+) -> list[InnerImageData]:
+    """Parse each discovered image URL via the ParserService (LlamaParse OCR) concurrently."""
+
+    async def _parse_one(img) -> InnerImageData:
+        try:
+            parse_result = await parser.parse_from_url(img.url)
+            if parse_result.status == ParseStatus.SUCCESS and parse_result.text:
+                return InnerImageData(
+                    url=img.url,
+                    alt=img.alt,
+                    title=img.title,
+                    content=parse_result.text,
+                    content_length=len(parse_result.text),
+                )
+            else:
+                return InnerImageData(
+                    url=img.url,
+                    alt=img.alt,
+                    title=img.title,
+                    error=parse_result.error or f"Parse failed: {parse_result.status.value}",
+                )
+        except Exception as exc:
+            log.warning("inner_img_parse_failed", url=img.url, error=str(exc))
+            return InnerImageData(
+                url=img.url,
+                alt=img.alt,
+                title=img.title,
+                error=str(exc),
+            )
+
+    results = await asyncio.gather(*[_parse_one(img) for img in images])
+    return list(results)
+
+
+async def _parse_inner_documents(
+    parser, documents: list, request_id: str
+) -> list[InnerDocData]:
+    """Parse each discovered document URL via the ParserService concurrently."""
+
+    async def _parse_one(doc) -> InnerDocData:
+        try:
+            parse_result = await parser.parse_from_url(doc.url)
+            if parse_result.status == ParseStatus.SUCCESS:
+                return InnerDocData(
+                    url=doc.url,
+                    title=doc.link_text or parse_result.metadata.title,
+                    doc_type=doc.type,
+                    content=parse_result.text,
+                    pages=parse_result.pages_parsed,
+                    content_length=len(parse_result.text) if parse_result.text else 0,
+                    language=parse_result.metadata.language,
+                )
+            else:
+                return InnerDocData(
+                    url=doc.url,
+                    title=doc.link_text,
+                    doc_type=doc.type,
+                    error=parse_result.error or f"Parse failed: {parse_result.status.value}",
+                )
+        except Exception as exc:
+            log.warning("inner_doc_parse_failed", url=doc.url, error=str(exc))
+            return InnerDocData(
+                url=doc.url,
+                title=doc.link_text,
+                doc_type=doc.type,
+                error=str(exc),
+            )
+
+    results = await asyncio.gather(*[_parse_one(doc) for doc in documents])
+    return list(results)
 
 
 def _map_scrape_error(status: str, error_msg: str | None) -> str:

@@ -77,6 +77,55 @@ def discover_documents(html: str, base_url: str) -> list[DiscoveredDoc]:
     return docs
 
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".tif", ".ico"}
+
+
+class DiscoveredImage:
+    """An image URL found on a page."""
+
+    __slots__ = ("url", "alt", "title")
+
+    def __init__(self, url: str, alt: str | None = None, title: str | None = None):
+        self.url = url
+        self.alt = alt
+        self.title = title
+
+
+def discover_images(html: str, base_url: str) -> list[DiscoveredImage]:
+    """Extract image URLs from HTML <img> tags and normalize to absolute URLs."""
+    soup = BeautifulSoup(html or "", "lxml")
+    seen: set[str] = set()
+    images: list[DiscoveredImage] = []
+
+    for img_tag in soup.find_all("img", src=True):
+        src = img_tag.get("src")
+        if not isinstance(src, str):
+            continue
+        src = src.strip()
+        if not src or src.startswith("data:"):
+            continue
+
+        abs_url = urljoin(base_url, src)
+        parsed = urlparse(abs_url)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if abs_url in seen:
+            continue
+
+        # Only include URLs with a recognizable image extension
+        path_lower = parsed.path.lower()
+        if not any(path_lower.endswith(ext) for ext in IMAGE_EXTENSIONS):
+            continue
+
+        seen.add(abs_url)
+        alt = img_tag.get("alt", "").strip() or None
+        title = img_tag.get("title", "").strip() or None
+        images.append(DiscoveredImage(url=abs_url, alt=alt, title=title))
+
+    log.debug("images_discovered", base_url=base_url, count=len(images))
+    return images
+
+
 def extract_documents_and_links(html: str, base_url: str, found_on: str | None = None) -> tuple[list[DiscoveredDoc], list[str]]:
     """Return both discovered documents and normal links."""
     soup = BeautifulSoup(html or "", "lxml")

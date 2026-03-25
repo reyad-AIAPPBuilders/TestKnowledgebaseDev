@@ -6,6 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.parsing.models import (
+    DocumentMetadata,
+    DocumentType,
+    ParseResult,
+    ParseStatus,
+)
 from app.services.scraping.scraper_service import (
     DiscoveredDocument,
     PageMetadata,
@@ -31,10 +37,18 @@ def mock_sitemap_parser():
 
 
 @pytest.fixture
-def client(mock_scraper, mock_sitemap_parser):
+def mock_parser():
+    parser = MagicMock()
+    parser.parse_from_url = AsyncMock()
+    return parser
+
+
+@pytest.fixture
+def client(mock_scraper, mock_sitemap_parser, mock_parser):
     app.state._test_mode = True
     app.state.scraping = mock_scraper
     app.state.sitemap_parser = mock_sitemap_parser
+    app.state.parser = mock_parser
     with TestClient(app) as c:
         yield c
 
@@ -192,3 +206,332 @@ def test_request_id_in_scrape_response(client, mock_scraper):
     data = response.json()
     assert data["request_id"] == "test-req-123"
     assert response.headers["X-Request-ID"] == "test-req-123"
+
+
+# ── inner_img tests ──────────────────────────────────────
+
+
+def test_scrape_inner_img_parses_images(client, mock_scraper, mock_parser):
+    """When inner_img=true, images from HTML are parsed via LlamaParse and returned."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Page with images",
+        html='<html><body>'
+             '<img src="https://example.gv.at/photo.jpg" alt="Town hall" title="Rathaus">'
+             '<img src="/images/banner.png" alt="Banner">'
+             '<img src="data:image/gif;base64,R0lGODlh" alt="pixel">'
+             '</body></html>',
+        metadata=PageMetadata(title="Page", word_count=3),
+    )
+
+    mock_parser.parse_from_url.side_effect = [
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            document_type=DocumentType.JPG,
+            text="Town hall building with Austrian flag",
+            metadata=DocumentMetadata(),
+        ),
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            document_type=DocumentType.PNG,
+            text="Welcome to Wiener Neudorf",
+            metadata=DocumentMetadata(),
+        ),
+    ]
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_img": True,
+    })
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["success"] is True
+    images = data["data"]["inner_images"]
+    assert images is not None
+    assert len(images) == 2  # data: URL is skipped
+
+    assert images[0]["url"] == "https://example.gv.at/photo.jpg"
+    assert images[0]["alt"] == "Town hall"
+    assert images[0]["title"] == "Rathaus"
+    assert images[0]["content"] == "Town hall building with Austrian flag"
+    assert images[0]["content_length"] == len("Town hall building with Austrian flag")
+
+    assert images[1]["url"] == "https://example.gv.at/images/banner.png"
+    assert images[1]["alt"] == "Banner"
+    assert images[1]["content"] == "Welcome to Wiener Neudorf"
+
+
+def test_scrape_inner_img_parse_failure(client, mock_scraper, mock_parser):
+    """When image parsing fails, error is returned with alt/title preserved."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Page",
+        html='<html><body><img src="/broken.jpg" alt="test"></body></html>',
+        metadata=PageMetadata(word_count=1),
+    )
+
+    mock_parser.parse_from_url.return_value = ParseResult(
+        status=ParseStatus.FAILED,
+        document_type=DocumentType.JPG,
+        error="Unsupported image format",
+    )
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_img": True,
+    })
+    data = response.json()
+    assert data["success"] is True
+    images = data["data"]["inner_images"]
+    assert len(images) == 1
+    assert images[0]["content"] is None
+    assert images[0]["error"] == "Unsupported image format"
+    assert images[0]["alt"] == "test"
+
+
+def test_scrape_inner_img_false_returns_null(client, mock_scraper):
+    """When inner_img=false (default), inner_images is null."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Hello",
+        html='<html><body><img src="/photo.jpg" alt="test"></body></html>',
+        metadata=PageMetadata(word_count=1),
+    )
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+    })
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["inner_images"] is None
+
+
+def test_scrape_inner_img_no_html(client, mock_scraper):
+    """When inner_img=true but no HTML is available, inner_images is null."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Hello",
+        html=None,
+        metadata=PageMetadata(word_count=1),
+    )
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_img": True,
+    })
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["inner_images"] is None
+
+
+# ── inner_docs tests ─────────────────────────────────────
+
+
+def test_scrape_inner_docs_parses_documents(client, mock_scraper, mock_parser):
+    """When inner_docs=true, discovered documents are parsed and returned."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Page with docs",
+        metadata=PageMetadata(title="Page", word_count=3),
+        discovered_documents=[
+            DiscoveredDocument(url="https://example.gv.at/report.pdf", type="pdf", link_text="Annual Report"),
+            DiscoveredDocument(url="https://example.gv.at/form.docx", type="docx", link_text="Application Form"),
+        ],
+    )
+
+    mock_parser.parse_from_url.side_effect = [
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            document_type=DocumentType.PDF,
+            text="Parsed PDF content here.",
+            metadata=DocumentMetadata(title="Annual Report 2025", language="de", page_count=5),
+            pages_parsed=5,
+        ),
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            document_type=DocumentType.DOCX,
+            text="Form fields and instructions.",
+            metadata=DocumentMetadata(title="Application Form", language="de", page_count=2),
+            pages_parsed=2,
+        ),
+    ]
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_docs": True,
+    })
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["success"] is True
+    docs = data["data"]["inner_documents"]
+    assert docs is not None
+    assert len(docs) == 2
+
+    assert docs[0]["url"] == "https://example.gv.at/report.pdf"
+    assert docs[0]["title"] == "Annual Report"  # link_text takes precedence
+    assert docs[0]["doc_type"] == "pdf"
+    assert docs[0]["content"] == "Parsed PDF content here."
+    assert docs[0]["pages"] == 5
+    assert docs[0]["content_length"] == len("Parsed PDF content here.")
+    assert docs[0]["error"] is None
+
+    assert docs[1]["url"] == "https://example.gv.at/form.docx"
+    assert docs[1]["doc_type"] == "docx"
+    assert docs[1]["content"] == "Form fields and instructions."
+    assert docs[1]["pages"] == 2
+
+
+def test_scrape_inner_docs_parse_failure(client, mock_scraper, mock_parser):
+    """When a document fails to parse, error is returned instead of content."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Page",
+        metadata=PageMetadata(word_count=1),
+        discovered_documents=[
+            DiscoveredDocument(url="https://example.gv.at/broken.pdf", type="pdf", link_text="Broken PDF"),
+        ],
+    )
+
+    mock_parser.parse_from_url.return_value = ParseResult(
+        status=ParseStatus.FAILED,
+        document_type=DocumentType.PDF,
+        error="Document is encrypted",
+    )
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_docs": True,
+    })
+    data = response.json()
+    assert data["success"] is True  # scrape itself succeeded
+    docs = data["data"]["inner_documents"]
+    assert len(docs) == 1
+    assert docs[0]["content"] is None
+    assert docs[0]["error"] == "Document is encrypted"
+
+
+def test_scrape_inner_docs_exception(client, mock_scraper, mock_parser):
+    """When parser raises an exception, it's caught and returned as error."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Page",
+        metadata=PageMetadata(word_count=1),
+        discovered_documents=[
+            DiscoveredDocument(url="https://example.gv.at/timeout.pdf", type="pdf", link_text="Slow Doc"),
+        ],
+    )
+
+    mock_parser.parse_from_url.side_effect = TimeoutError("Download timed out")
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_docs": True,
+    })
+    data = response.json()
+    assert data["success"] is True
+    docs = data["data"]["inner_documents"]
+    assert len(docs) == 1
+    assert docs[0]["error"] == "Download timed out"
+    assert docs[0]["content"] is None
+
+
+def test_scrape_inner_docs_false_returns_null(client, mock_scraper):
+    """When inner_docs=false (default), inner_documents is null."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Hello",
+        metadata=PageMetadata(word_count=1),
+        discovered_documents=[
+            DiscoveredDocument(url="https://example.gv.at/doc.pdf", type="pdf"),
+        ],
+    )
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+    })
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["inner_documents"] is None
+
+
+def test_scrape_inner_docs_no_documents(client, mock_scraper):
+    """When inner_docs=true but no documents found, inner_documents is null."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Hello",
+        metadata=PageMetadata(word_count=1),
+        discovered_documents=[],
+    )
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_docs": True,
+    })
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["inner_documents"] is None
+
+
+# ── inner_img + inner_docs combined ──────────────────────
+
+
+def test_scrape_both_inner_img_and_docs(client, mock_scraper, mock_parser):
+    """When both inner_img and inner_docs are true, both are returned."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Full page",
+        html='<html><body>'
+             '<img src="/logo.png" alt="Logo">'
+             '<a href="/report.pdf">Report</a>'
+             '</body></html>',
+        metadata=PageMetadata(title="Full", word_count=2),
+        discovered_documents=[
+            DiscoveredDocument(url="https://example.gv.at/report.pdf", type="pdf", link_text="Report"),
+        ],
+    )
+
+    # parse_from_url is called for both the image and the document
+    mock_parser.parse_from_url.side_effect = [
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            document_type=DocumentType.PNG,
+            text="Company logo text",
+            metadata=DocumentMetadata(),
+        ),
+        ParseResult(
+            status=ParseStatus.SUCCESS,
+            document_type=DocumentType.PDF,
+            text="Report content.",
+            metadata=DocumentMetadata(language="de"),
+            pages_parsed=1,
+        ),
+    ]
+
+    response = client.post("/api/v1/online/scrape", json={
+        "url": "https://example.gv.at/page",
+        "inner_img": True,
+        "inner_docs": True,
+    })
+    data = response.json()
+    assert data["success"] is True
+
+    assert data["data"]["inner_images"] is not None
+    assert len(data["data"]["inner_images"]) == 1
+    assert data["data"]["inner_images"][0]["alt"] == "Logo"
+    assert data["data"]["inner_images"][0]["content"] == "Company logo text"
+
+    assert data["data"]["inner_documents"] is not None
+    assert len(data["data"]["inner_documents"]) == 1
+    assert data["data"]["inner_documents"][0]["content"] == "Report content."

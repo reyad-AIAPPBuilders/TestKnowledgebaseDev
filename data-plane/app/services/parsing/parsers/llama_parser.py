@@ -54,6 +54,13 @@ class LlamaParser(BaseParser):
             DocumentType.DOC.value,
             DocumentType.PPTX.value,
             DocumentType.ODT.value,
+            DocumentType.JPG.value,
+            DocumentType.PNG.value,
+            DocumentType.GIF.value,
+            DocumentType.BMP.value,
+            DocumentType.WEBP.value,
+            DocumentType.TIFF.value,
+            DocumentType.SVG.value,
         ]
 
     async def check_health(self) -> bool:

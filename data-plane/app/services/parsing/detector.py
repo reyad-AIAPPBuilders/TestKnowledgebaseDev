@@ -16,6 +16,13 @@ MIME_MAP: dict[str, DocumentType] = {
     "text/html": DocumentType.HTML,
     "application/rtf": DocumentType.RTF,
     "application/vnd.oasis.opendocument.text": DocumentType.ODT,
+    "image/jpeg": DocumentType.JPG,
+    "image/png": DocumentType.PNG,
+    "image/gif": DocumentType.GIF,
+    "image/bmp": DocumentType.BMP,
+    "image/webp": DocumentType.WEBP,
+    "image/tiff": DocumentType.TIFF,
+    "image/svg+xml": DocumentType.SVG,
 }
 
 MAGIC_BYTES: list[tuple[bytes, DocumentType]] = [
@@ -24,6 +31,14 @@ MAGIC_BYTES: list[tuple[bytes, DocumentType]] = [
     (b"\xd0\xcf\x11\xe0", DocumentType.DOC),  # OLE2 (DOC, XLS, PPT)
     (b"<!DOCTYPE", DocumentType.HTML),
     (b"<html", DocumentType.HTML),
+    (b"\xff\xd8\xff", DocumentType.JPG),  # JPEG
+    (b"\x89PNG", DocumentType.PNG),  # PNG
+    (b"GIF87a", DocumentType.GIF),  # GIF87a
+    (b"GIF89a", DocumentType.GIF),  # GIF89a
+    (b"BM", DocumentType.BMP),  # BMP
+    (b"RIFF", DocumentType.WEBP),  # WEBP (RIFF container)
+    (b"II\x2a\x00", DocumentType.TIFF),  # TIFF little-endian
+    (b"MM\x00\x2a", DocumentType.TIFF),  # TIFF big-endian
 ]
 
 EXTENSION_MAP: dict[str, DocumentType] = {
@@ -39,6 +54,15 @@ EXTENSION_MAP: dict[str, DocumentType] = {
     ".htm": DocumentType.HTML,
     ".rtf": DocumentType.RTF,
     ".odt": DocumentType.ODT,
+    ".jpg": DocumentType.JPG,
+    ".jpeg": DocumentType.JPG,
+    ".png": DocumentType.PNG,
+    ".gif": DocumentType.GIF,
+    ".bmp": DocumentType.BMP,
+    ".webp": DocumentType.WEBP,
+    ".tiff": DocumentType.TIFF,
+    ".tif": DocumentType.TIFF,
+    ".svg": DocumentType.SVG,
 }
 
 

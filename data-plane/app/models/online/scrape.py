@@ -5,12 +5,41 @@ class ScrapeRequest(BaseModel):
     """Request to scrape a single webpage and extract its content as Markdown."""
 
     url: str = Field(..., description="Full URL of the webpage to scrape (must start with http:// or https://)")
+    inner_img: bool = Field(False, description="If true, extract and parse images found on the page (returns alt text, URL, and OCR content if available)")
+    inner_docs: bool = Field(False, description="If true, extract and parse documents (PDF, DOCX, etc.) linked on the page using the document parsing backend")
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"url": "https://www.wiener-neudorf.gv.at/foerderungen"}]
+            "examples": [
+                {"url": "https://www.wiener-neudorf.gv.at/foerderungen"},
+                {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "inner_img": True, "inner_docs": True},
+            ]
         }
     }
+
+
+class InnerImageData(BaseModel):
+    """Parsed image found on the scraped page."""
+
+    url: str = Field(..., description="Absolute URL of the image")
+    alt: str | None = Field(None, description="Alt text of the image")
+    title: str | None = Field(None, description="Title attribute of the image")
+    content: str | None = Field(None, description="Extracted text content from the image (OCR via LlamaParse)")
+    content_length: int = Field(0, description="Length of extracted content in characters")
+    error: str | None = Field(None, description="Error message if image parsing failed")
+
+
+class InnerDocData(BaseModel):
+    """Parsed document found on the scraped page."""
+
+    url: str = Field(..., description="Absolute URL of the document")
+    title: str | None = Field(None, description="Link text or document title")
+    doc_type: str = Field(..., description="Document type (pdf, docx, xlsx, etc.)")
+    content: str | None = Field(None, description="Extracted text content from the document")
+    pages: int | None = Field(None, description="Number of pages parsed")
+    content_length: int = Field(0, description="Length of extracted content in characters")
+    language: str | None = Field(None, description="Detected document language (ISO 639-1)")
+    error: str | None = Field(None, description="Error message if parsing failed")
 
 
 class ScrapeData(BaseModel):
@@ -23,6 +52,8 @@ class ScrapeData(BaseModel):
     language: str | None = Field(None, description="Detected language (ISO 639-1 code, e.g. 'de')")
     links_found: int = Field(0, description="Number of links discovered on the page")
     last_modified: str | None = Field(None, description="Last-Modified header value if present")
+    inner_images: list[InnerImageData] | None = Field(None, description="Parsed images found on the page (only when inner_img=true)")
+    inner_documents: list[InnerDocData] | None = Field(None, description="Parsed documents linked on the page (only when inner_docs=true)")
 
 
 class CrawlRequest(BaseModel):

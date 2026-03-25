@@ -24,6 +24,13 @@ class DocumentType(str, Enum):
     HTML = "html"
     RTF = "rtf"
     ODT = "odt"
+    JPG = "jpg"
+    PNG = "png"
+    GIF = "gif"
+    BMP = "bmp"
+    WEBP = "webp"
+    TIFF = "tiff"
+    SVG = "svg"
     UNKNOWN = "unknown"
 
 
