@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Data Plane internal settings."""
 
-    model_config = {"env_prefix": "DP_"}
+    model_config = {"env_prefix": "DP_", "env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     # Auth
     hmac_secret: str = ""  # HMAC-SHA256 shared secret (empty = auth disabled)

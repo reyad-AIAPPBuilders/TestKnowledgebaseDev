@@ -154,17 +154,21 @@ tags_metadata = [
         "name": "Local - Vector Management",
         "description": "Delete vectors or update ACL permissions on existing vector points.\n\n"
         "- `DELETE /local/vectors/{source_id}?collection_name=...` — remove all vectors for a document\n"
+        "- `POST /local/vectors/delete-by-filter` — remove vectors matching metadata filters\n"
         "- `PUT /local/vectors/update-acl` — update ACL payload on vectors without re-embedding",
     },
     {
         "name": "Online - Collection Management",
         "description": "List and inspect available Qdrant collections.\n\n"
-        "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
+        "**Requires `X-API-Key` header** when `DP_ONLINE_API_KEYS` is configured in `.env`.",
     },
     {
         "name": "Online - Web Scraping",
         "description": "Scrape webpages via Crawl4AI and discover URLs from sitemaps or BFS crawling.\n\n"
-        "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
+        "**Endpoints:**\n"
+        "- `POST /online/scrape` — scrape a single webpage, optionally extract inner images and linked documents\n"
+        "- `POST /online/crawl` — discover URLs via sitemap parsing or BFS link following\n\n"
+        "**Requires `X-API-Key` header** when `DP_ONLINE_API_KEYS` is configured in `.env`.",
     },
     {
         "name": "Online - Document Parsing",
@@ -172,12 +176,23 @@ tags_metadata = [
         "**Input methods:**\n"
         "- `POST /online/document-parse` — parse from a public URL\n"
         "- `POST /online/document-parse/upload` — upload a file directly\n\n"
-        "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
+        "**Requires `X-API-Key` header** when `DP_ONLINE_API_KEYS` is configured in `.env`.",
     },
     {
         "name": "Online - Ingestion Pipeline",
         "description": "Full RAG ingestion pipeline for web-scraped content: chunk → classify → embed (OpenAI text-embedding-3-small) → store (Qdrant).\n\n"
-        "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
+        "**Key features:**\n"
+        "- Chunking strategies: `contextual` (default, AI-enriched), `recursive`, `late_chunking`, `sentence`, `fixed`\n"
+        "- Vector modes: `semantic` (dense only) or `hybrid` (dense + sparse BM25)\n"
+        "- Idempotent: re-ingesting the same `source_id` replaces old vectors automatically\n\n"
+        "**Requires `X-API-Key` header** when `DP_ONLINE_API_KEYS` is configured in `.env`.",
+    },
+    {
+        "name": "Online - Vector Management",
+        "description": "Delete vectors from online-ingested content.\n\n"
+        "- `DELETE /online/vectors/{source_id}?collection_name=...` — remove all vectors for a document\n"
+        "- `POST /online/vectors/delete-by-filter` — remove vectors matching metadata filters (AND logic)\n\n"
+        "**Requires `X-API-Key` header** when `DP_ONLINE_API_KEYS` is configured in `.env`.",
     },
     {
         "name": "Content Intelligence",
@@ -198,7 +213,9 @@ tags_metadata = [
     },
     {
         "name": "Collection Management",
-        "description": "Create and inspect Qdrant vector collections for municipality tenants. "
+        "description": "Create and inspect Qdrant vector collections for municipality tenants.\n\n"
+        "- `POST /collections/init` — create a new collection with configurable dense/sparse vector settings\n"
+        "- `GET /collections/stats?collection_name=...` — get collection statistics (vector count, disk usage, classification breakdown)\n\n"
         "Each collection stores dense vectors (OpenAI or BGE-M3) and optional BM25 sparse vectors for hybrid search.",
     },
 ]
@@ -207,28 +224,32 @@ app = FastAPI(
     title="KI² Data Plane",
     description=(
         "Unified ingestion, embedding, and permission-aware search for municipality RAG pipelines.\n\n"
+        "## Authentication\n\n"
+        "| Method | Scope | How to enable |\n"
+        "|--------|-------|---------------|\n"
+        "| **HMAC-SHA256** | All endpoints (except `/health`, `/docs`) | Set `DP_HMAC_SECRET` in `.env` — clients send `X-Signature` + `X-Timestamp` headers |\n"
+        "| **API Key** | Online endpoints only (`/api/v1/online/...`) | Set `DP_ONLINE_API_KEYS` in `.env` — clients send `X-API-Key` header |\n\n"
+        "Both are disabled when their respective env vars are empty.\n\n"
         "## Two Operational Modes\n\n"
         "### 1. Online Mode — Knowledgebase from Web Content (`/api/v1/online/...`)\n"
-        "Update the knowledgebase using online URLs and cloud services. **Requires X-API-Key header.**\n"
-        "- **Scrape** web pages via Crawl4AI, discover URLs from sitemaps\n"
-        "- **Parse** documents from any public URL — uses **LlamaParse** (cloud) for high-quality extraction\n"
-        "- **Ingest** scraped/parsed content into Qdrant vector collections\n"
-        "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification)\n\n"
-        "### 2. Local Mode — Fully Offline Document Processing (`/api/v1/local/...`)\n"
-        "Process documents entirely locally without any third-party APIs. **No API key required.**\n"
-        "- **Upload** documents directly via `POST /local/document-parse/upload` or read from **SMB file shares**\n"
-        "- **Parse** locally using **PyMuPDF** (PDF) and **python-docx** (DOCX) — lightweight, no GPU or heavy dependencies\n"
-        "- **Discover** files from SMB shares with NTFS ACL extraction\n"
-        "- Requires: No external API keys — only Qdrant and BGE-M3 for embedding/search\n\n"
-        "## Authentication\n"
-        "- **HMAC auth** (all endpoints except `/health`): Set `DP_HMAC_SECRET` to enable.\n"
-        "- **API key auth** (online endpoints only): Optional. Set `DP_ONLINE_API_KEYS` to enable — clients must then send `X-API-Key` header. "
-        "If not configured, online endpoints are open.\n\n"
+        "Update the knowledgebase using online URLs and cloud services.\n"
+        "- **Scrape** web pages via Crawl4AI, discover URLs from sitemaps or BFS crawling\n"
+        "- **Parse** documents from any public URL or upload directly\n"
+        "- **Ingest** scraped/parsed content into Qdrant with chunking, classification, and OpenAI embeddings\n"
+        "- **Delete** vectors by source ID or metadata filters\n"
+        "- Requires: `CRAWL4AI_URL`, `OPENAI_API_KEY`, `QDRANT_URL`\n\n"
+        "### 2. Local Mode — On-Premise Document Processing (`/api/v1/local/...`)\n"
+        "Process documents from SMB file shares or Cloudflare R2.\n"
+        "- **Discover** files from SMB shares or R2 buckets with NTFS ACL extraction and change detection\n"
+        "- **Parse** documents via upload, SMB, or R2 (LlamaParse cloud or local PyMuPDF/python-docx)\n"
+        "- **Ingest** parsed content with ACL-aware payloads into Qdrant using BGE-M3 embeddings\n"
+        "- **Manage** vectors: delete by source ID/filter, update ACL without re-embedding\n"
+        "- Requires: `QDRANT_URL`, `BGE_M3_URL`\n\n"
         "## Pipeline Flow\n"
-        "1. **Discover** → Scan file sources (SMB shares, Cloudflare R2) for new/changed documents\n"
+        "1. **Discover** → Scan file sources (SMB shares, R2) for new/changed documents\n"
         "2. **Scrape / Parse** → Extract text from web pages (Crawl4AI) or documents (URL, upload, SMB, R2)\n"
         "3. **Ingest** → Chunk, classify, embed (OpenAI / BGE-M3), and store in Qdrant with metadata\n"
-        "4. **Search** → Permission-filtered semantic search across collections\n"
+        "4. **Search** → Permission-filtered semantic or hybrid search across collections\n"
     ),
     version=settings.version,
     lifespan=lifespan,
