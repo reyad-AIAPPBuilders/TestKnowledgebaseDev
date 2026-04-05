@@ -78,7 +78,7 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             chunk_overlap=chunking.overlap if chunking else None,
             vector_size=vcfg.vector_size if vcfg else 1536,
             search_mode=vcfg.search_mode.value if vcfg else "semantic",
-            fallback_dense_dim=ext.bge_gemma2_dense_dim,
+            fallback_dense_dim=ext.bge_gemma2_dense_dim if (vcfg and vcfg.enable_fallback) else None,
         )
     except IngestError as e:
         error_code = INGEST_ERROR_CODE_MAP.get(e.code, ErrorCode.EMBEDDING_FAILED)

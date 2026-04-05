@@ -103,6 +103,7 @@ class SearchService:
         top_k: int = 10,
         score_threshold: float = 0.5,
         search_mode: str = "semantic",
+        enable_fallback: bool = False,
     ) -> SearchResult:
         collection = collection_name
         if not collection:
@@ -113,22 +114,23 @@ class SearchService:
         # 1. Build permission filter
         perm_filter = self._build_permission_filter(user_type, user_groups)
 
-        # 2. Embed the query (dense via OpenAI, fallback to BGE-Gemma2)
+        # 2. Embed the query (dense via OpenAI, optionally fallback to BGE-Gemma2)
         embed_start = time.monotonic()
-        dense_vector_name = "dense_openai" if self._fallback_embedder else "dense"
+        use_fallback = enable_fallback and self._fallback_embedder is not None
+        dense_vector_name = "dense_openai" if use_fallback else "dense"
         embedding = None
 
         try:
             embedding = await self._embedder.embed(query)
         except EmbeddingError as e:
-            if self._fallback_embedder is None:
+            if not use_fallback:
                 error_msg = str(e).lower()
                 if "not initialized" in error_msg:
                     raise SearchError(str(e), code="EMBEDDING_MODEL_NOT_LOADED") from e
                 raise SearchError(str(e), code="EMBEDDING_FAILED") from e
             log.warning("search_primary_embed_failed_using_fallback", error=str(e))
 
-        if embedding is None and self._fallback_embedder:
+        if embedding is None and use_fallback:
             try:
                 embedding = await self._fallback_embedder.embed(query)
                 dense_vector_name = "dense_bge_gemma2"

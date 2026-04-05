@@ -81,6 +81,7 @@ async def search(body: SearchRequest, request: Request) -> ResponseEnvelope[Sear
             top_k=body.top_k,
             score_threshold=body.score_threshold,
             search_mode=body.search_mode,
+            enable_fallback=body.enable_fallback,
         )
     except SearchError as e:
         error_code = _ERROR_CODE_MAP.get(e.code, ErrorCode.QDRANT_SEARCH_FAILED)

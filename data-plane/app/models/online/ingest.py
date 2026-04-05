@@ -21,8 +21,9 @@ class OnlineChunkingConfig(BaseModel):
 class OnlineVectorConfig(BaseModel):
     """Configuration for vector storage in Qdrant."""
 
-    vector_size: int = Field(1536, ge=64, le=4096, description="Dimensionality of the OpenAI dense embedding vector (dense_openai). Default: 1536. The BGE-Gemma2 fallback dimension is configured server-side via BGE_GEMMA2_DENSE_DIM.")
-    search_mode: SearchMode = Field(SearchMode.semantic, description="'semantic' — store dense_openai + dense_bge_gemma2 cosine vectors. 'hybrid' — store dense_openai + dense_bge_gemma2 + sparse (BM25) vectors for combined semantic + lexical search.")
+    vector_size: int = Field(1536, ge=64, le=4096, description="Dimensionality of the OpenAI dense embedding vector. Default: 1536.")
+    search_mode: SearchMode = Field(SearchMode.semantic, description="'semantic' — dense cosine vectors only. 'hybrid' — dense + sparse (BM25) vectors for combined semantic + lexical search.")
+    enable_fallback: bool = Field(False, description="When true, stores an additional dense_bge_gemma2 vector via LiteLLM alongside dense_openai. Enables automatic fallback to BGE-Gemma2 during search when OpenAI is unavailable. The fallback vector dimension is configured server-side via BGE_GEMMA2_DENSE_DIM.")
 
 
 class OnlineIngestMetadata(BaseModel):
@@ -47,18 +48,21 @@ class OnlineIngestRequest(BaseModel):
     """Request to ingest web-scraped content into the vector database.
 
     Takes scraped/parsed text and runs:
-    chunks -> classifies -> embeds (OpenAI + BGE-Gemma2 via LiteLLM) -> stores in Qdrant.
+    chunks -> classifies -> embeds (OpenAI, optionally + BGE-Gemma2) -> stores in Qdrant.
 
-    Every point gets **multi-vector** embeddings: ``dense_openai`` (primary) and
-    ``dense_bge_gemma2`` (fallback). If one embedder fails during ingest, the point
-    is still stored with the other's vector. During search, OpenAI is tried first;
-    if unavailable, ``dense_bge_gemma2`` is used automatically.
+    When ``vector_config.enable_fallback`` is true, every point gets **multi-vector**
+    embeddings: ``dense_openai`` (primary) and ``dense_bge_gemma2`` (fallback via
+    LiteLLM). During search, OpenAI is tried first; if unavailable,
+    ``dense_bge_gemma2`` is used automatically.
+
+    When ``enable_fallback`` is false (default), only a single ``dense`` vector
+    (OpenAI) is stored — same as the original behavior.
 
     Existing vectors for the same source_id are automatically replaced (upsert).
 
     **Vector modes:**
-    - `semantic` (default) — stores ``dense_openai`` + ``dense_bge_gemma2`` cosine vectors.
-    - `hybrid` — stores ``dense_openai`` + ``dense_bge_gemma2`` + ``sparse`` (BM25) vectors for combined semantic + lexical search.
+    - `semantic` (default) — stores dense cosine vectors only.
+    - `hybrid` — stores dense + ``sparse`` (BM25) vectors for combined semantic + lexical search.
     """
 
     collection_name: str = Field(..., description="Qdrant collection name to store vectors in")
@@ -89,6 +93,7 @@ class OnlineIngestRequest(BaseModel):
                     "vector_config": {
                         "vector_size": 1536,
                         "search_mode": "semantic",
+                        "enable_fallback": True,
                     },
                 }
             ]
