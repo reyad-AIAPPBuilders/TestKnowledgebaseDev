@@ -95,23 +95,15 @@ class IngestService:
 
         # Ensure collection exists with correct vector config
         try:
+            multi_vec = {"dense_openai": vector_size}
             if use_multi_vector:
-                await self._qdrant.create_collection(
-                    name=collection,
-                    sparse=use_sparse,
-                    distance="Cosine",
-                    multi_vector={
-                        "dense_openai": vector_size,
-                        "dense_bge_gemma2": fallback_dense_dim,
-                    },
-                )
-            else:
-                await self._qdrant.create_collection(
-                    name=collection,
-                    dense_dim=vector_size,
-                    sparse=use_sparse,
-                    distance="Cosine",
-                )
+                multi_vec["dense_bge_gemma2"] = fallback_dense_dim
+            await self._qdrant.create_collection(
+                name=collection,
+                sparse=use_sparse,
+                distance="Cosine",
+                multi_vector=multi_vec,
+            )
         except QdrantError as e:
             raise IngestError(str(e), code="QDRANT_CONNECTION_FAILED") from e
 
@@ -243,16 +235,13 @@ class IngestService:
                 "metadata": point_metadata,
             }
 
-            # Build vectors dict based on available embeddings
+            # Build vectors dict — always use dense_openai as the primary name
             vectors: dict = {}
 
-            if use_multi_vector:
-                if openai_embeddings:
-                    vectors["dense_openai"] = openai_embeddings[i].dense
-                if fallback_embeddings:
-                    vectors["dense_bge_gemma2"] = fallback_embeddings[i].dense
-            else:
-                vectors["dense"] = openai_embeddings[i].dense
+            if openai_embeddings:
+                vectors["dense_openai"] = openai_embeddings[i].dense
+            if use_multi_vector and fallback_embeddings:
+                vectors["dense_bge_gemma2"] = fallback_embeddings[i].dense
 
             # Include BM25 sparse vector for hybrid search mode
             if use_sparse:

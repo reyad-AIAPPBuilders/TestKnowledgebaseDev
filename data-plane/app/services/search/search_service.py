@@ -117,7 +117,7 @@ class SearchService:
         # 2. Embed the query (dense via OpenAI, optionally fallback to BGE-Gemma2)
         embed_start = time.monotonic()
         use_fallback = enable_fallback and self._fallback_embedder is not None
-        dense_vector_name = "dense_openai" if use_fallback else "dense"
+        dense_vector_name = "dense_openai"
         embedding = None
 
         try:
