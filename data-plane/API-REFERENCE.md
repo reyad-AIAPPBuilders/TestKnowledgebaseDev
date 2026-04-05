@@ -131,6 +131,8 @@ Readiness check. Returns minimal response without auth, full response with HMAC 
   "services": {
     "qdrant": true,
     "bge_m3": true,
+    "openai_embedder": true,
+    "bge_gemma2": true,
     "parser": true,
     "crawl4ai": true,
     "ldap": false,
@@ -144,7 +146,7 @@ Readiness check. Returns minimal response without auth, full response with HMAC 
 }
 ```
 
-Core services required for `ready: true`: **qdrant**, **bge_m3**, **parser**, **crawl4ai**.
+Core services required for `ready: true`: **qdrant**, **bge_m3**, **parser**, **crawl4ai**. The **openai_embedder** and **bge_gemma2** statuses are informational — at least one must be healthy for online ingest/search to work.
 
 ---
 
@@ -226,8 +228,8 @@ Classify content into 9 categories and extract structured entities. Designed for
 Permission-aware semantic or hybrid search. **No search is ever unfiltered** — every request requires a user context.
 
 **Search modes:**
-- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small` (1536-dim)
-- `hybrid` — dense (OpenAI) + sparse (BM25) combined with **Reciprocal Rank Fusion (RRF)**. Requires the collection to have been ingested with `search_mode: hybrid`.
+- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small` (1536-dim). Automatically falls back to BGE-Gemma2 via LiteLLM (`dense_bge_gemma2` vector) when OpenAI is unavailable.
+- `hybrid` — dense (OpenAI or BGE-Gemma2 fallback) + sparse (BM25) combined with **Reciprocal Rank Fusion (RRF)**. Requires the collection to have been ingested with `search_mode: hybrid`.
 
 **Permission model:**
 - `citizen` → sees only `visibility: "public"` documents
@@ -768,15 +770,17 @@ const response = await fetch("/api/v1/online/document-parse/upload", {
 
 ## `POST /api/v1/online/ingest`
 
-The RAG pipeline endpoint for web content. Takes parsed text and runs: **chunk -> classify -> embed (OpenAI text-embedding-3-small) -> store (Qdrant)**.
+The RAG pipeline endpoint for web content. Takes parsed text and runs: **chunk -> classify -> embed (OpenAI + BGE-Gemma2 via LiteLLM) -> store (Qdrant)**.
 
 Uses `url` instead of `file_path` to identify the source. The `url` is automatically stored as `source_url` in every Qdrant point's metadata.
+
+Every point stores **multi-vector** embeddings: `dense_openai` (primary, 1536-dim) and `dense_bge_gemma2` (fallback, configurable dim via `BGE_GEMMA2_DENSE_DIM`). If one embedder is unavailable during ingest, the point is still stored with the other's vector.
 
 The collection is **auto-created** if it does not exist, using the specified `vector_config` settings.
 
 **Vector modes** (via `vector_config.search_mode`):
-- `semantic` (default) — stores only dense cosine vectors. Best for pure semantic similarity search.
-- `hybrid` — stores both dense cosine vectors **and** sparse vectors. Enables combined semantic + lexical (BM25-style) search for higher recall.
+- `semantic` (default) — stores `dense_openai` + `dense_bge_gemma2` cosine vectors.
+- `hybrid` — stores `dense_openai` + `dense_bge_gemma2` + `sparse` (BM25) vectors. Enables combined semantic + lexical search for higher recall.
 
 **Request (semantic mode — default):**
 ```bash
@@ -879,8 +883,8 @@ At least one of `assistant_id` or `municipality_id` must be provided. If neither
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `vector_size` | int | `1536` | Dimensionality of the dense cosine vector (64–4096). Must match embedding model output. |
-| `search_mode` | string | `"semantic"` | `"semantic"` — dense vectors only. `"hybrid"` — dense + sparse vectors for combined semantic + lexical search. |
+| `vector_size` | int | `1536` | Dimensionality of the OpenAI dense vector (`dense_openai`, 64–4096). The BGE-Gemma2 fallback dimension is configured server-side via `BGE_GEMMA2_DENSE_DIM`. |
+| `search_mode` | string | `"semantic"` | `"semantic"` — `dense_openai` + `dense_bge_gemma2` vectors. `"hybrid"` — `dense_openai` + `dense_bge_gemma2` + `sparse` (BM25) vectors. |
 
 ### Qdrant point payload structure
 
@@ -891,7 +895,11 @@ The payload has top-level fields for tenant/agent isolation (`organization_id`, 
 ```json
 {
   "id": "uuid",
-  "vector": {"dense": [...]},
+  "vector": {
+    "dense_openai": [1536-dim float array],
+    "dense_bge_gemma2": [3584-dim float array],
+    "sparse": {"indices": [...], "values": [...]}
+  },
   "payload": {
     "organization_id": "org_wiener_neudorf",
     "assistant_id": "asst_wiener_neudorf_01",

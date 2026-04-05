@@ -87,6 +87,12 @@ class ExternalSettings(BaseSettings):
     clickhouse_user: str = "dataplane"
     clickhouse_password: str = ""
 
+    # LiteLLM (self-hosted proxy for fallback embedding model)
+    litellm_url: str = "http://litellm:4000"
+    litellm_api_key: str = ""
+    bge_gemma2_model: str = "bge-multilingual-gemma2"
+    bge_gemma2_dense_dim: int = 3584
+
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"

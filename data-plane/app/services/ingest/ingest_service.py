@@ -43,7 +43,14 @@ class IngestResult:
 
 
 class IngestService:
-    """Orchestrates the full ingest pipeline: chunk → classify → embed → store."""
+    """Orchestrates the full ingest pipeline: chunk → classify → embed → store.
+
+    When a ``fallback_embedder`` is provided (BGE-Gemma2 via LiteLLM) and
+    ``fallback_dense_dim`` is passed to ``ingest()``, the service stores
+    multi-vector points with ``dense_openai`` + ``dense_bge_gemma2`` (and
+    optionally ``sparse`` for hybrid mode). If one embedder fails during
+    ingest, the point is still stored with the other's vector.
+    """
 
     def __init__(
         self,
@@ -52,12 +59,14 @@ class IngestService:
         embedder,
         qdrant: QdrantService,
         contextual_enricher=None,
+        fallback_embedder=None,
     ) -> None:
         self._chunker = chunker
         self._classifier = classifier
         self._embedder = embedder
         self._qdrant = qdrant
         self._contextual_enricher = contextual_enricher
+        self._fallback_embedder = fallback_embedder
         self._bm25 = BM25Encoder()
 
     async def ingest(
@@ -74,22 +83,35 @@ class IngestService:
         chunk_overlap: int | None = None,
         vector_size: int = 1536,
         search_mode: str = "semantic",
+        fallback_dense_dim: int | None = None,
     ) -> IngestResult:
         start = time.monotonic()
         collection = collection_name
         use_sparse = search_mode == "hybrid"
+        use_multi_vector = self._fallback_embedder is not None and fallback_dense_dim is not None
 
         if not collection:
             raise IngestError("collection_name is required", code="QDRANT_COLLECTION_NOT_FOUND")
 
         # Ensure collection exists with correct vector config
         try:
-            await self._qdrant.create_collection(
-                name=collection,
-                dense_dim=vector_size,
-                sparse=use_sparse,
-                distance="Cosine",
-            )
+            if use_multi_vector:
+                await self._qdrant.create_collection(
+                    name=collection,
+                    sparse=use_sparse,
+                    distance="Cosine",
+                    multi_vector={
+                        "dense_openai": vector_size,
+                        "dense_bge_gemma2": fallback_dense_dim,
+                    },
+                )
+            else:
+                await self._qdrant.create_collection(
+                    name=collection,
+                    dense_dim=vector_size,
+                    sparse=use_sparse,
+                    distance="Cosine",
+                )
         except QdrantError as e:
             raise IngestError(str(e), code="QDRANT_CONNECTION_FAILED") from e
 
@@ -139,22 +161,49 @@ class IngestService:
 
         # 3. Embed all chunks
         embed_start = time.monotonic()
+
+        # Primary embedder (OpenAI for online, BGE-M3 for local)
+        openai_embeddings = None
         try:
-            embeddings = await self._embedder.embed_batch(chunk_result.chunks)
+            openai_embeddings = await self._embedder.embed_batch(chunk_result.chunks)
         except EmbeddingError as e:
-            error_msg = str(e).lower()
-            if "oom" in error_msg or "memory" in error_msg:
-                raise IngestError(str(e), code="EMBEDDING_OOM") from e
-            if "not initialized" in error_msg or "not loaded" in error_msg:
-                raise IngestError(str(e), code="EMBEDDING_MODEL_NOT_LOADED") from e
-            raise IngestError(str(e), code="EMBEDDING_FAILED") from e
+            if not use_multi_vector:
+                error_msg = str(e).lower()
+                if "oom" in error_msg or "memory" in error_msg:
+                    raise IngestError(str(e), code="EMBEDDING_OOM") from e
+                if "not initialized" in error_msg or "not loaded" in error_msg:
+                    raise IngestError(str(e), code="EMBEDDING_MODEL_NOT_LOADED") from e
+                raise IngestError(str(e), code="EMBEDDING_FAILED") from e
+            log.warning("ingest_primary_embed_failed", source_id=source_id, error=str(e))
+
+        # Fallback embedder (BGE-Gemma2 via LiteLLM)
+        fallback_embeddings = None
+        if use_multi_vector:
+            try:
+                fallback_embeddings = await self._fallback_embedder.embed_batch(chunk_result.chunks)
+            except EmbeddingError as e:
+                log.warning("ingest_fallback_embed_failed", source_id=source_id, error=str(e))
+
+        # At least one embedding source must succeed
+        if openai_embeddings is None and fallback_embeddings is None:
+            raise IngestError(
+                "Both primary and fallback embedding models failed",
+                code="EMBEDDING_FAILED",
+            )
 
         embedding_time_ms = int((time.monotonic() - embed_start) * 1000)
-        log.info("ingest_embedded", source_id=source_id, chunks=len(embeddings), duration_ms=embedding_time_ms)
+        log.info(
+            "ingest_embedded",
+            source_id=source_id,
+            chunks=len(chunk_result.chunks),
+            has_openai=openai_embeddings is not None,
+            has_bge_gemma2=fallback_embeddings is not None,
+            duration_ms=embedding_time_ms,
+        )
 
         # 4. Build Qdrant points
         points = []
-        for i, (chunk_text, embedding) in enumerate(zip(chunk_result.chunks, embeddings)):
+        for i, chunk_text in enumerate(chunk_result.chunks):
             chunk_id = f"{source_id}_chunk_{i:04d}"
             point_metadata = {
                 "chunk_id": chunk_id,
@@ -194,7 +243,16 @@ class IngestService:
                 "metadata": point_metadata,
             }
 
-            vectors: dict = {"dense": embedding.dense}
+            # Build vectors dict based on available embeddings
+            vectors: dict = {}
+
+            if use_multi_vector:
+                if openai_embeddings:
+                    vectors["dense_openai"] = openai_embeddings[i].dense
+                if fallback_embeddings:
+                    vectors["dense_bge_gemma2"] = fallback_embeddings[i].dense
+            else:
+                vectors["dense"] = openai_embeddings[i].dense
 
             # Include BM25 sparse vector for hybrid search mode
             if use_sparse:

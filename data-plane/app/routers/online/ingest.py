@@ -4,6 +4,7 @@ POST /api/v1/online/ingest — Ingest web-scraped content into the RAG pipeline.
 
 from fastapi import APIRouter, Request
 
+from app.config import ext
 from app.models.common import ErrorCode, ResponseEnvelope
 from app.models.online.ingest import OnlineEntityCounts, OnlineIngestData, OnlineIngestRequest
 from app.routers._ingest_utils import INGEST_ERROR_CODE_MAP
@@ -23,12 +24,18 @@ router = APIRouter(prefix="/api/v1/online", tags=["Online - Ingestion Pipeline"]
         "1. **Chunk** — Split content using `contextual` (default), `late_chunking`, `sentence`, or `fixed` strategy\n"
         "2. **Contextual Enrichment** — (when using `contextual` strategy) Prepend AI-generated context to each chunk via OpenAI, improving retrieval accuracy\n"
         "3. **Classify** — Categorize into one of 9 municipality content types + extract entities\n"
-        "4. **Embed** — Generate dense vectors via OpenAI `text-embedding-3-small` (1536-dim)\n"
+        "4. **Embed** — Generate **multi-vector** dense embeddings via OpenAI `text-embedding-3-small` (1536-dim) "
+        "**and** BGE-multilingual-gemma2 via LiteLLM (fallback, configurable dim). "
+        "If one embedder fails, the point is still stored with the other's vector.\n"
         "5. **Store** — Upsert vectors into the specified Qdrant `collection_name` with metadata\n\n"
+        "**Multi-vector architecture:**\n"
+        "Every point stores two dense vectors: `dense_openai` (primary) and `dense_bge_gemma2` (fallback). "
+        "During search, OpenAI is tried first; if it is unavailable, `dense_bge_gemma2` is used automatically.\n\n"
         "**Vector modes** (via `vector_config.search_mode`):\n"
-        "- `semantic` (default) — stores only dense cosine vectors (dimensionality controlled by `vector_config.vector_size`, default 1536). "
+        "- `semantic` (default) — stores `dense_openai` + `dense_bge_gemma2` cosine vectors. "
         "Best for pure semantic similarity search.\n"
-        "- `hybrid` — stores both dense cosine vectors **and** sparse vectors. Enables combined semantic + lexical (BM25-style) search.\n\n"
+        "- `hybrid` — stores `dense_openai` + `dense_bge_gemma2` + `sparse` (BM25) vectors. "
+        "Enables combined semantic + lexical search.\n\n"
         "The collection is **auto-created** if it does not exist, using the specified vector size and search mode.\n\n"
         "Previous vectors for the same `source_id` are deleted before upserting (idempotent).\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.\n\n"
@@ -71,6 +78,7 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             chunk_overlap=chunking.overlap if chunking else None,
             vector_size=vcfg.vector_size if vcfg else 1536,
             search_mode=vcfg.search_mode.value if vcfg else "semantic",
+            fallback_dense_dim=ext.bge_gemma2_dense_dim,
         )
     except IngestError as e:
         error_code = INGEST_ERROR_CODE_MAP.get(e.code, ErrorCode.EMBEDDING_FAILED)

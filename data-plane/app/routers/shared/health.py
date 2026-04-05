@@ -42,7 +42,7 @@ async def health(request: Request) -> HealthResponse:
 
 **Without HMAC auth headers:** Returns minimal `{ready: true/false}` — suitable for load balancer health checks.
 
-**With HMAC auth headers (X-Signature + X-Timestamp):** Returns full dependency status including Qdrant, BGE-M3, Parser (LlamaParse/Unstructured), Crawl4AI, LDAP, and Redis.
+**With HMAC auth headers (X-Signature + X-Timestamp):** Returns full dependency status including Qdrant, BGE-M3, OpenAI embedder, BGE-Gemma2 (LiteLLM), Parser (LlamaParse/Unstructured), Crawl4AI, LDAP, and Redis.
 
 Core services that must be healthy for `ready: true`: Qdrant, BGE-M3, Parser, Crawl4AI.""",
     response_description="Readiness status with optional service details",
@@ -76,6 +76,22 @@ async def ready(request: Request) -> ReadyResponse:
             services.bge_m3 = await embedder.check_health()
         except Exception:
             services.bge_m3 = False
+
+    # OpenAI embedder
+    openai_embedder = getattr(request.app.state, "openai_embedder", None)
+    if openai_embedder:
+        try:
+            services.openai_embedder = await openai_embedder.check_health()
+        except Exception:
+            services.openai_embedder = False
+
+    # BGE-Gemma2 (LiteLLM)
+    bge_gemma2 = getattr(request.app.state, "bge_gemma2_embedder", None)
+    if bge_gemma2:
+        try:
+            services.bge_gemma2 = await bge_gemma2.check_health()
+        except Exception:
+            services.bge_gemma2 = False
 
     # Parser (LlamaParse or Unstructured)
     parser = getattr(request.app.state, "parser", None)

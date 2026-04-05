@@ -100,8 +100,16 @@ class QdrantService:
         dense_dim: int = 1024,
         sparse: bool = True,
         distance: str = "Cosine",
+        multi_vector: dict[str, int] | None = None,
     ) -> bool:
-        """Create a Qdrant collection. Returns True if created, False if already exists."""
+        """Create a Qdrant collection. Returns True if created, False if already exists.
+
+        Args:
+            multi_vector: Optional mapping of vector names to dimensions, e.g.
+                ``{"dense_openai": 1536, "dense_bge_gemma2": 3584}``.
+                When provided, ``dense_dim`` is ignored and each entry
+                becomes a named vector in the collection.
+        """
         if not self._client:
             raise QdrantError("Qdrant client not initialized")
 
@@ -115,12 +123,18 @@ class QdrantService:
             raise QdrantError(f"Qdrant connection failed: {e}") from e
 
         # Build vectors config
-        vectors_config = {
-            "dense": {
-                "size": dense_dim,
-                "distance": distance,
-            },
-        }
+        if multi_vector:
+            vectors_config = {
+                vec_name: {"size": dim, "distance": distance}
+                for vec_name, dim in multi_vector.items()
+            }
+        else:
+            vectors_config = {
+                "dense": {
+                    "size": dense_dim,
+                    "distance": distance,
+                },
+            }
 
         if sparse:
             sparse_config = {
@@ -147,7 +161,7 @@ class QdrantService:
         except httpx.RequestError as e:
             raise QdrantError(f"Qdrant connection failed: {e}") from e
 
-        log.info("qdrant_collection_created", collection=name, dense_dim=dense_dim, sparse=sparse)
+        log.info("qdrant_collection_created", collection=name, vectors=list(vectors_config.keys()), sparse=sparse)
         return True
 
     async def collection_stats(self, name: str) -> dict:
@@ -298,6 +312,7 @@ class QdrantService:
         filters: dict | None = None,
         top_k: int = 10,
         score_threshold: float = 0.0,
+        dense_vector_name: str = "dense",
     ) -> list[dict]:
         """Search for similar vectors with optional filtering."""
         if not self._client:
@@ -305,7 +320,7 @@ class QdrantService:
 
         start = time.monotonic()
         body: dict = {
-            "vector": {"name": "dense", "vector": dense_vector},
+            "vector": {"name": dense_vector_name, "vector": dense_vector},
             "limit": top_k,
             "with_payload": True,
             "score_threshold": score_threshold,
@@ -338,6 +353,7 @@ class QdrantService:
         filters: dict | None = None,
         top_k: int = 10,
         prefetch_limit: int = 20,
+        dense_vector_name: str = "dense",
     ) -> list[dict]:
         """Hybrid search using RRF (Reciprocal Rank Fusion) over dense + sparse vectors."""
         if not self._client:
@@ -353,7 +369,7 @@ class QdrantService:
             },
             {
                 "query": dense_vector,
-                "using": "dense",
+                "using": dense_vector_name,
                 "limit": prefetch_limit,
             },
         ]

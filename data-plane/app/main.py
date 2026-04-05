@@ -22,6 +22,7 @@ from app.routers.shared import classify, collections, health, metrics, search
 from app.services.discovery.discovery_service import DiscoveryService
 from app.services.discovery.r2_client import R2Client
 from app.services.discovery.smb_client import SMBClient
+from app.services.embedding.bge_gemma2_client import BGEGemma2Client
 from app.services.embedding.bge_m3_client import BGEM3Client
 from app.services.embedding.openai_client import OpenAIEmbedClient
 from app.services.embedding.qdrant_service import QdrantService
@@ -80,6 +81,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await openai_embedder.startup()
     app.state.openai_embedder = openai_embedder
 
+    bge_gemma2_embedder = BGEGemma2Client()
+    await bge_gemma2_embedder.startup()
+    app.state.bge_gemma2_embedder = bge_gemma2_embedder
+
     qdrant = QdrantService()
     await qdrant.startup()
     app.state.qdrant = qdrant
@@ -94,8 +99,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # ── Ingest + Search ──────────────────────────────
     chunker = Chunker()
     app.state.ingest = IngestService(chunker, classifier, embedder, qdrant, contextual_enricher)
-    app.state.online_ingest = IngestService(chunker, classifier, openai_embedder, qdrant, contextual_enricher)
-    app.state.search = SearchService(openai_embedder, qdrant)
+    app.state.online_ingest = IngestService(
+        chunker, classifier, openai_embedder, qdrant, contextual_enricher,
+        fallback_embedder=bge_gemma2_embedder,
+    )
+    app.state.search = SearchService(openai_embedder, qdrant, fallback_embedder=bge_gemma2_embedder)
 
     log.info("app_started", mode=settings.mode, version=settings.version)
     yield
@@ -105,6 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await parser_svc.shutdown()
     await embedder.shutdown()
     await openai_embedder.shutdown()
+    await bge_gemma2_embedder.shutdown()
     await contextual_enricher.shutdown()
     await qdrant.shutdown()
     await r2_client.shutdown()
@@ -117,7 +126,7 @@ tags_metadata = [
     {
         "name": "Health",
         "description": "Liveness and readiness probes for container orchestrators and load balancers. "
-        "The `/ready` endpoint checks connectivity to Qdrant, BGE-M3, Parser (LlamaParse or local), Crawl4AI, LDAP, and Redis.",
+        "The `/ready` endpoint checks connectivity to Qdrant, BGE-M3, OpenAI, BGE-Gemma2 (LiteLLM), Parser (LlamaParse or local), Crawl4AI, LDAP, and Redis.",
     },
     {
         "name": "Metrics",
@@ -176,7 +185,9 @@ tags_metadata = [
     },
     {
         "name": "Online - Ingestion Pipeline",
-        "description": "Full RAG ingestion pipeline for web-scraped content: chunk → classify → embed (OpenAI text-embedding-3-small) → store (Qdrant).\n\n"
+        "description": "Full RAG ingestion pipeline for web-scraped content: chunk → classify → embed (multi-vector: OpenAI + BGE-Gemma2 via LiteLLM) → store (Qdrant).\n\n"
+        "Every point stores two dense vectors: `dense_openai` (primary) and `dense_bge_gemma2` (fallback). "
+        "If one embedder is unavailable during ingest, the point is still stored with the other's vector.\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
     },
     {
@@ -188,8 +199,10 @@ tags_metadata = [
         "name": "Semantic Search",
         "description": "Permission-aware semantic and hybrid search across Qdrant collections.\n\n"
         "**Search modes:**\n"
-        "- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small`\n"
-        "- `hybrid` — dense (OpenAI) + sparse (BM25) with Reciprocal Rank Fusion (RRF)\n\n"
+        "- `semantic` (default) — dense-only cosine search via OpenAI `text-embedding-3-small` (fallback to BGE-Gemma2 via LiteLLM)\n"
+        "- `hybrid` — dense (OpenAI or BGE-Gemma2 fallback) + sparse (BM25) with Reciprocal Rank Fusion (RRF)\n\n"
+        "**Embedding fallback:** OpenAI is the primary embedder. If unavailable, the service automatically "
+        "falls back to BGE-Gemma2 via self-hosted LiteLLM and searches the `dense_bge_gemma2` vectors.\n\n"
         "**Key features:**\n"
         "- Caller specifies the target `collection_name` to search in\n"
         "- Mandatory user context for ACL filtering (citizen → public only; employee → public + internal with AD group intersection)\n"
@@ -199,7 +212,8 @@ tags_metadata = [
     {
         "name": "Collection Management",
         "description": "Create and inspect Qdrant vector collections for municipality tenants. "
-        "Each collection stores dense vectors (OpenAI or BGE-M3) and optional BM25 sparse vectors for hybrid search.",
+        "Online collections store multi-vector embeddings: `dense_openai` + `dense_bge_gemma2` (fallback) "
+        "and optional BM25 `sparse` vectors for hybrid search. Local collections use BGE-M3.",
     },
 ]
 
@@ -212,8 +226,10 @@ app = FastAPI(
         "Update the knowledgebase using online URLs and cloud services. **Requires X-API-Key header.**\n"
         "- **Scrape** web pages via Crawl4AI, discover URLs from sitemaps\n"
         "- **Parse** documents from any public URL — uses **LlamaParse** (cloud) for high-quality extraction\n"
-        "- **Ingest** scraped/parsed content into Qdrant vector collections\n"
-        "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification)\n\n"
+        "- **Ingest** scraped/parsed content into Qdrant vector collections with multi-vector embeddings "
+        "(OpenAI primary + BGE-Gemma2 fallback via LiteLLM)\n"
+        "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification + primary embedding), "
+        "`LITELLM_URL` (for BGE-Gemma2 fallback embedding)\n\n"
         "### 2. Local Mode — Fully Offline Document Processing (`/api/v1/local/...`)\n"
         "Process documents entirely locally without any third-party APIs. **No API key required.**\n"
         "- **Upload** documents directly via `POST /local/document-parse/upload` or read from **SMB file shares**\n"
@@ -227,7 +243,7 @@ app = FastAPI(
         "## Pipeline Flow\n"
         "1. **Discover** → Scan file sources (SMB shares, Cloudflare R2) for new/changed documents\n"
         "2. **Scrape / Parse** → Extract text from web pages (Crawl4AI) or documents (URL, upload, SMB, R2)\n"
-        "3. **Ingest** → Chunk, classify, embed (OpenAI / BGE-M3), and store in Qdrant with metadata\n"
+        "3. **Ingest** → Chunk, classify, embed (OpenAI + BGE-Gemma2 fallback for online / BGE-M3 for local), and store in Qdrant with metadata\n"
         "4. **Search** → Permission-filtered semantic search across collections\n"
     ),
     version=settings.version,

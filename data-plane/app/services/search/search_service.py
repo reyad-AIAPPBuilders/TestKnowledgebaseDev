@@ -78,11 +78,16 @@ class SearchService:
 
     - semantic: dense-only cosine search via OpenAI embeddings
     - hybrid: dense (OpenAI) + sparse (BM25) with Reciprocal Rank Fusion (RRF)
+
+    When a ``fallback_embedder`` is provided (BGE-Gemma2 via LiteLLM),
+    the service automatically falls back to ``dense_bge_gemma2`` vectors
+    if the primary OpenAI embedding call fails.
     """
 
-    def __init__(self, embedder, qdrant: QdrantService) -> None:
+    def __init__(self, embedder, qdrant: QdrantService, fallback_embedder=None) -> None:
         self._embedder = embedder
         self._qdrant = qdrant
+        self._fallback_embedder = fallback_embedder
         self._bm25 = BM25Encoder()
 
     async def search(
@@ -108,15 +113,31 @@ class SearchService:
         # 1. Build permission filter
         perm_filter = self._build_permission_filter(user_type, user_groups)
 
-        # 2. Embed the query (dense via OpenAI)
+        # 2. Embed the query (dense via OpenAI, fallback to BGE-Gemma2)
         embed_start = time.monotonic()
+        dense_vector_name = "dense_openai" if self._fallback_embedder else "dense"
+        embedding = None
+
         try:
             embedding = await self._embedder.embed(query)
         except EmbeddingError as e:
-            error_msg = str(e).lower()
-            if "not initialized" in error_msg:
-                raise SearchError(str(e), code="EMBEDDING_MODEL_NOT_LOADED") from e
-            raise SearchError(str(e), code="EMBEDDING_FAILED") from e
+            if self._fallback_embedder is None:
+                error_msg = str(e).lower()
+                if "not initialized" in error_msg:
+                    raise SearchError(str(e), code="EMBEDDING_MODEL_NOT_LOADED") from e
+                raise SearchError(str(e), code="EMBEDDING_FAILED") from e
+            log.warning("search_primary_embed_failed_using_fallback", error=str(e))
+
+        if embedding is None and self._fallback_embedder:
+            try:
+                embedding = await self._fallback_embedder.embed(query)
+                dense_vector_name = "dense_bge_gemma2"
+            except EmbeddingError as e:
+                raise SearchError(
+                    f"Both primary and fallback embedding failed: {e}",
+                    code="EMBEDDING_FAILED",
+                ) from e
+
         query_embedding_ms = int((time.monotonic() - embed_start) * 1000)
 
         # 3. Build Qdrant filter
@@ -133,6 +154,7 @@ class SearchService:
                     sparse_vector=sparse_vector,
                     filters=qdrant_filter,
                     top_k=top_k,
+                    dense_vector_name=dense_vector_name,
                 )
             else:
                 raw_results = await self._qdrant.search(
@@ -141,6 +163,7 @@ class SearchService:
                     filters=qdrant_filter,
                     top_k=top_k,
                     score_threshold=score_threshold,
+                    dense_vector_name=dense_vector_name,
                 )
         except QdrantError as e:
             error_msg = str(e).lower()

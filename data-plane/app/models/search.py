@@ -28,8 +28,8 @@ class SearchRequest(BaseModel):
     are visible based on ACL visibility and group membership.
 
     **Search modes:**
-    - `semantic` (default) — dense-only cosine search via OpenAI embeddings
-    - `hybrid` — dense (OpenAI) + sparse (BM25) with Reciprocal Rank Fusion (RRF)
+    - `semantic` (default) — dense-only cosine search via OpenAI embeddings (falls back to BGE-Gemma2 if OpenAI is down)
+    - `hybrid` — dense (OpenAI or BGE-Gemma2 fallback) + sparse (BM25) with Reciprocal Rank Fusion (RRF)
     """
 
     collection_name: str = Field(..., description="Qdrant collection name to search in")
