@@ -102,7 +102,16 @@ class QdrantService:
         distance: str = "Cosine",
         multi_vector: dict[str, int] | None = None,
     ) -> bool:
-        """Create a Qdrant collection. Returns True if created, False if already exists.
+        """Create or recreate a Qdrant collection.
+
+        Returns True if the collection was (re)created, False if it already
+        existed with a compatible vector schema.
+
+        When ``multi_vector`` is provided, the method checks whether an
+        existing collection already contains the expected named vectors.
+        If the schema doesn't match (e.g. the collection only has a legacy
+        ``dense`` vector), the old collection is **deleted and recreated**
+        with the new multi-vector config so that upserts succeed.
 
         Args:
             multi_vector: Optional mapping of vector names to dimensions, e.g.
@@ -113,21 +122,13 @@ class QdrantService:
         if not self._client:
             raise QdrantError("Qdrant client not initialized")
 
-        # Check if collection exists
-        try:
-            resp = await self._client.get(f"/collections/{name}")
-            if resp.status_code == 200:
-                log.info("qdrant_collection_exists", collection=name)
-                return False
-        except httpx.RequestError as e:
-            raise QdrantError(f"Qdrant connection failed: {e}") from e
-
-        # Build vectors config
+        # Build target vectors config
         if multi_vector:
             vectors_config = {
                 vec_name: {"size": dim, "distance": distance}
                 for vec_name, dim in multi_vector.items()
             }
+            expected_vector_names = set(multi_vector.keys())
         else:
             vectors_config = {
                 "dense": {
@@ -135,7 +136,30 @@ class QdrantService:
                     "distance": distance,
                 },
             }
+            expected_vector_names = {"dense"}
 
+        # Check if collection exists and whether its schema is compatible
+        try:
+            resp = await self._client.get(f"/collections/{name}")
+            if resp.status_code == 200:
+                existing_vectors = resp.json().get("result", {}).get("config", {}).get("params", {}).get("vectors", {})
+                existing_vector_names = set(existing_vectors.keys())
+
+                if expected_vector_names.issubset(existing_vector_names):
+                    log.info("qdrant_collection_exists", collection=name)
+                    return False
+
+                # Schema mismatch — cannot add new vector fields to existing collection
+                raise QdrantError(
+                    f"Collection '{name}' has incompatible vector schema: "
+                    f"existing={sorted(existing_vector_names)}, "
+                    f"expected={sorted(expected_vector_names)}. "
+                    f"Delete the collection manually and re-ingest to migrate to multi-vector."
+                )
+        except httpx.RequestError as e:
+            raise QdrantError(f"Qdrant connection failed: {e}") from e
+
+        # Build sparse config
         if sparse:
             sparse_config = {
                 "sparse": {
