@@ -45,7 +45,10 @@ class BGEGemma2Client:
         if not self._client:
             return False
         try:
-            resp = await self._client.get(f"{self._base_url}/health", timeout=5)
+            headers = {}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
+            resp = await self._client.get(f"{self._base_url}/health", headers=headers, timeout=5)
             return resp.status_code == 200
         except Exception:
             return False
