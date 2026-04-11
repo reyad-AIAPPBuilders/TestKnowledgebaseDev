@@ -30,6 +30,7 @@ from app.services.ingest.ingest_service import IngestService
 from app.services.intelligence.chunker import Chunker
 from app.services.intelligence.classifier import Classifier
 from app.services.intelligence.contextual import ContextualEnricher
+from app.services.intelligence.funding_extractor import FundingExtractor
 from app.services.parsing.parser_service import ParserService
 from app.services.scraping.scraper_service import ScraperService
 from app.services.scraping.sitemap import SitemapParser
@@ -71,6 +72,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     contextual_enricher = ContextualEnricher()
     await contextual_enricher.startup()
     app.state.contextual_enricher = contextual_enricher
+
+    funding_extractor = FundingExtractor()
+    funding_extractor.startup()
+    app.state.funding_extractor = funding_extractor
 
     # ── Embedding + Storage ──────────────────────────
     embedder = BGEM3Client()
@@ -206,7 +211,7 @@ tags_metadata = [
         "**Key features:**\n"
         "- Caller specifies the target `collection_name` to search in\n"
         "- Mandatory user context for ACL filtering (citizen → public only; employee → public + internal with AD group intersection)\n"
-        "- Results include `organization_id`, `department`, entity data, and content type\n"
+        "- Results include `municipality_id`, `department`, entity data, and content type\n"
         "- Optional filtering by content type (e.g. `funding`, `policy`)",
     },
     {

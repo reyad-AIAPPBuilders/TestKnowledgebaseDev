@@ -227,8 +227,19 @@ class IngestService:
                 point_metadata["entity_amounts"] = classify_result.entities.amounts[:5]
                 point_metadata["entity_deadlines"] = classify_result.entities.deadlines[:5]
 
+            # Pass through extra metadata fields (e.g. funding extraction fields)
+            _known_keys = {
+                "chunk_id", "source_id", "chunk_index", "source_url", "source_path",
+                "content_type", "language", "title", "source_type", "mime_type",
+                "uploaded_by", "assistant_id", "municipality_id", "department",
+                "assistant_type", "municipality_id",
+            }
+            for key, value in metadata.items():
+                if key not in _known_keys and value not in (None, "", []):
+                    point_metadata[key] = value
+
             payload = {
-                "organization_id": metadata.get("organization_id", ""),
+                "municipality_id": metadata.get("municipality_id", ""),
                 "assistant_id": metadata.get("assistant_id", ""),
                 "department": metadata.get("department", []),
                 "content": chunk_text,

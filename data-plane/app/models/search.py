@@ -78,7 +78,7 @@ class SearchResultMetadata(BaseModel):
     """Metadata from the source document."""
 
     title: str | None = Field(None, description="Document title")
-    organization_id: str | None = Field(None, description="Organization/tenant identifier")
+    municipality_id: str | None = Field(None, description="Municipality/tenant identifier")
     department: list[str] | None = Field(None, description="Source departments")
     source_type: str | None = Field(None, description="Origin: smb, r2, or web")
 

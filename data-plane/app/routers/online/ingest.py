@@ -37,11 +37,14 @@ router = APIRouter(prefix="/api/v1/online", tags=["Online - Ingestion Pipeline"]
         "- `hybrid` — stores `dense_openai` + `dense_bge_gemma2` + `sparse` (BM25) vectors. "
         "Enables combined semantic + lexical search.\n\n"
         "The collection is **auto-created** if it does not exist, using the specified vector size and search mode.\n\n"
+        "**Content-type gating:** When `assistant_type` is `\"funding\"`, the content is pre-classified before ingestion. "
+        "If the detected content type does not include `funding`, the request is rejected with `CONTENT_TYPE_MISMATCH` "
+        "and nothing is stored.\n\n"
         "Previous vectors for the same `source_id` are deleted before upserting (idempotent).\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.\n\n"
         "**Error codes:** `VALIDATION_EMPTY_CONTENT`, `EMBEDDING_MODEL_NOT_LOADED`, "
         "`EMBEDDING_FAILED`, `EMBEDDING_OOM`, `QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, "
-        "`QDRANT_UPSERT_FAILED`, `QDRANT_DISK_FULL`, `CLASSIFY_FAILED`"
+        "`QDRANT_UPSERT_FAILED`, `QDRANT_DISK_FULL`, `CLASSIFY_FAILED`, `CONTENT_TYPE_MISMATCH`"
     ),
     response_description="Ingestion result with chunk count, vector count, classification, and timing",
 )
@@ -57,12 +60,57 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             request_id=request_id,
         )
 
+    # ── Content-type gate: when assistant_type is "funding", only ingest funding content ──
+    if body.assistant_type == "funding":
+        classifier = ingest_svc._classifier
+        try:
+            classify_result = await classifier.classify(body.content, language=body.language or "de")
+        except Exception as e:
+            log.error("ingest_online_preclassify_failed", source_id=body.source_id, error=str(e))
+            return ResponseEnvelope(
+                success=False,
+                error=ErrorCode.CLASSIFY_FAILED,
+                detail=f"Pre-ingest classification failed: {e}",
+                request_id=request_id,
+            )
+
+        detected_types = [classify_result.category.value] + classify_result.sub_categories
+        if "funding" not in detected_types:
+            log.info(
+                "ingest_online_skipped_non_funding",
+                source_id=body.source_id,
+                detected_content_type=detected_types,
+            )
+            return ResponseEnvelope(
+                success=False,
+                error=ErrorCode.CONTENT_TYPE_MISMATCH,
+                detail=(
+                    f"Content not ingested: assistant_type is 'funding' but detected content type "
+                    f"is {detected_types}. Only funding content is accepted for this assistant type."
+                ),
+                request_id=request_id,
+            )
+
+    # ── Funding metadata extraction (only for funding assistant) ──
+    funding_metadata: dict | None = None
+    if body.assistant_type == "funding":
+        extractor = request.app.state.funding_extractor
+        try:
+            funding_metadata = await extractor.extract(body.content, source_url=body.url)
+        except Exception as e:
+            log.warning("ingest_online_funding_extract_failed", source_id=body.source_id, error=str(e))
+            # Non-fatal: proceed with ingestion even if extraction fails
+
     chunking = body.chunking
     vcfg = body.vector_config
-    metadata_dict = body.metadata.model_dump()
+    # Build metadata: extracted funding fields first, then request body overwrites duplicates
+    request_meta = body.metadata.model_dump()
+    if funding_metadata:
+        metadata_dict = {**funding_metadata, **request_meta}
+    else:
+        metadata_dict = request_meta
     metadata_dict["source_url"] = body.url
-    # Map municipality_id → organization_id for Qdrant payload compatibility
-    metadata_dict["organization_id"] = metadata_dict.pop("municipality_id", None) or ""
+    metadata_dict["assistant_type"] = body.assistant_type
 
     try:
         result = await ingest_svc.ingest(

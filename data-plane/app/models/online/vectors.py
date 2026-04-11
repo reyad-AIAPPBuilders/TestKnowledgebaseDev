@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 class OnlineMetadataFilter(BaseModel):
     """A single metadata filter condition."""
 
-    key: str = Field(..., description="Metadata field name (e.g. 'source_type', 'content_type', 'assistant_id', 'organization_id')")
+    key: str = Field(..., description="Metadata field name (e.g. 'source_type', 'content_type', 'assistant_id', 'municipality_id')")
     value: str = Field(..., description="Exact value to match")
 
 

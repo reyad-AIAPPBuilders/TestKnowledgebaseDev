@@ -70,6 +70,7 @@ class OnlineIngestRequest(BaseModel):
     url: str = Field(..., description="Source URL (stored as source_url in Qdrant point metadata)")
     content: str = Field(..., min_length=1, description="Parsed/scraped text content (from /online/scrape or /online/document-parse)")
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
+    assistant_type: str | None = Field(None, description="Type of assistant processing this content (e.g. 'municipal', 'internal', 'public'). Stored in Qdrant point metadata for filtering during search.")
     metadata: OnlineIngestMetadata = Field(..., description="Document metadata stored alongside vectors")
     chunking: OnlineChunkingConfig | None = Field(None, description="Override default chunking settings")
     vector_config: OnlineVectorConfig | None = Field(None, description="Override default vector storage settings (size, search mode)")

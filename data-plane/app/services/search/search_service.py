@@ -37,7 +37,7 @@ class SearchResultItem:
         entity_amounts: list[str],
         entity_deadlines: list[str],
         title: str | None,
-        organization_id: str | None,
+        municipality_id: str | None,
         department: list[str] | None,
         source_type: str | None,
     ):
@@ -50,7 +50,7 @@ class SearchResultItem:
         self.entity_amounts = entity_amounts
         self.entity_deadlines = entity_deadlines
         self.title = title
-        self.organization_id = organization_id
+        self.municipality_id = municipality_id
         self.department = department
         self.source_type = source_type
 
@@ -191,7 +191,7 @@ class SearchService:
                 entity_amounts=meta.get("entity_amounts", []),
                 entity_deadlines=meta.get("entity_deadlines", []),
                 title=meta.get("title"),
-                organization_id=payload.get("organization_id"),
+                municipality_id=payload.get("municipality_id"),
                 department=payload.get("department") or meta.get("acl_department"),
                 source_type=meta.get("source_type"),
             ))

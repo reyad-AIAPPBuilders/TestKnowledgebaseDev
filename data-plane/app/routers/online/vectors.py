@@ -73,7 +73,7 @@ async def delete_vectors(
         "- `source_type` — Origin type (`web`)\n"
         "- `content_type` — Content categories (`funding`, `event`, `policy`, etc.)\n"
         "- `assistant_id` — Assistant identifier\n"
-        "- `organization_id` — Organization/tenant ID\n"
+        "- `municipality_id` — Municipality/tenant ID\n"
         "- `department` — Department\n"
         "- `language` — Document language\n"
         "- `uploaded_by` — Uploader ID\n"
@@ -90,7 +90,7 @@ async def delete_by_filter(
     qdrant = request.app.state.qdrant
 
     # Build Qdrant filter — top-level fields stay at root, others are nested under metadata
-    top_level_fields = {"organization_id", "assistant_id", "department"}
+    top_level_fields = {"municipality_id", "assistant_id", "department"}
     must_conditions = [
         {"key": f.key if f.key in top_level_fields else f"metadata.{f.key}", "match": {"value": f.value}}
         for f in body.filters

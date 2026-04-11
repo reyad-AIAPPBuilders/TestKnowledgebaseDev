@@ -18,7 +18,7 @@ class LocalIngestMetadata(BaseModel):
     uploaded_by: str | None = Field(None, description="User or service that uploaded the document")
     source_type: str | None = Field(None, description="Origin: 'smb' or 'r2'")
     mime_type: str | None = Field(None, description="Original file MIME type")
-    organization_id: str | None = Field(None, description="Organization/tenant identifier")
+    municipality_id: str | None = Field(None, description="Municipality/tenant identifier")
     department: str | None = Field(None, description="Department within the organization (e.g. 'bauamt', 'umwelt')")
 
 
@@ -63,7 +63,7 @@ class LocalIngestRequest(BaseModel):
                         "uploaded_by": "moderator_01",
                         "source_type": "smb",
                         "mime_type": "application/pdf",
-                        "organization_id": "org_wiener_neudorf",
+                        "municipality_id": "wiener-neudorf",
                         "department": "bauamt",
                     },
                     "chunking": {

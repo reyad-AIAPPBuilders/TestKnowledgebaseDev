@@ -293,7 +293,7 @@ Permission-aware semantic or hybrid search. **No search is ever unfiltered** —
         },
         "metadata": {
           "title": "Solarförderung 2025",
-          "organization_id": "org_wiener_neudorf",
+          "municipality_id": "wiener-neudorf",
           "department": ["Bauamt"],
           "source_type": "web"
         }
@@ -778,6 +778,10 @@ Every point stores **multi-vector** embeddings: `dense_openai` (primary, 1536-di
 
 The collection is **auto-created** if it does not exist, using the specified `vector_config` settings.
 
+**Content-type gating:** When `assistant_type` is `"funding"`, the content is pre-classified before ingestion. If the detected content type does not include `funding`, the request is rejected with `CONTENT_TYPE_MISMATCH` and nothing is stored. This prevents non-funding content from polluting a funding-specific knowledge base.
+
+**Funding metadata extraction:** When `assistant_type` is `"funding"` and the content passes the content-type gate, an additional OpenAI call extracts structured funding metadata (titel, region, zielgruppe, förderart, status, förderhöhe, etc.). This metadata is stored in every Qdrant point under `metadata.funding_metadata` for rich filtering and display during search.
+
 **Vector modes** (via `vector_config.search_mode`):
 - `semantic` (default) — stores `dense_openai` + `dense_bge_gemma2` cosine vectors.
 - `hybrid` — stores `dense_openai` + `dense_bge_gemma2` + `sparse` (BM25) vectors. Enables combined semantic + lexical search for higher recall.
@@ -850,6 +854,17 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 }
 ```
 
+**Response (content-type mismatch — `assistant_type: "funding"` but content is not funding):**
+```json
+{
+  "success": false,
+  "data": null,
+  "error": "CONTENT_TYPE_MISMATCH",
+  "detail": "Content not ingested: assistant_type is 'funding' but detected content type is ['event', 'community']. Only funding content is accepted for this assistant type.",
+  "request_id": "..."
+}
+```
+
 ### Request fields
 
 | Field | Type | Required | Default | Description |
@@ -859,6 +874,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 | `url` | string | Yes | — | Source URL — stored as `source_url` in Qdrant point metadata |
 | `content` | string | Yes | — | Parsed text from `/online/scrape` or `/online/document-parse` |
 | `language` | string | No | auto-detect | ISO 639-1 language code |
+| `assistant_type` | string | No | `null` | Type of assistant processing this content (e.g. `municipal`, `internal`, `public`). Stored in Qdrant metadata for search filtering. When set to `funding`, the content is pre-classified and **rejected** with `CONTENT_TYPE_MISMATCH` if the detected content type is not funding. |
 | `metadata` | object | Yes | — | Document metadata (see Online Metadata object below) |
 | `chunking` | object | No | defaults | Chunking configuration (see Chunking config below) |
 | `vector_config` | object | No | defaults | Vector storage settings (see Vector config below) |
@@ -888,10 +904,11 @@ At least one of `assistant_id` or `municipality_id` must be provided. If neither
 
 ### Qdrant point payload structure
 
-The payload has top-level fields for tenant/agent isolation (`organization_id`, `assistant_id`, `department`), plus `content` and nested `metadata`.
+The payload has top-level fields for tenant/agent isolation (`municipality_id`, `assistant_id`, `department`), plus `content` and nested `metadata`.
 
-> **Note:** The API request field `municipality_id` is stored as `organization_id` in the Qdrant payload.
+When `assistant_type` is `"funding"`, extracted funding fields are merged flat into `metadata` (not nested). If the request body and the extracted metadata share a field (e.g. `title`), the request body value takes priority.
 
+**Standard payload (non-funding):**
 ```json
 {
   "id": "uuid",
@@ -901,7 +918,7 @@ The payload has top-level fields for tenant/agent isolation (`organization_id`, 
     "sparse": {"indices": [...], "values": [...]}
   },
   "payload": {
-    "organization_id": "org_wiener_neudorf",
+    "municipality_id": "wiener-neudorf",
     "assistant_id": "asst_wiener_neudorf_01",
     "department": ["Bürgerservice", "Förderungen"],
     "content": "The chunk text content...",
@@ -922,9 +939,49 @@ The payload has top-level fields for tenant/agent isolation (`organization_id`, 
 }
 ```
 
+**Funding payload (`assistant_type: "funding"`) — includes extracted fields in metadata:**
+```json
+{
+  "id": "uuid",
+  "vector": { "dense_openai": [...], "dense_bge_gemma2": [...] },
+  "payload": {
+    "municipality_id": "wiener-neudorf",
+    "assistant_id": "asst_wiener_neudorf_01",
+    "department": ["Bürgerservice", "Förderungen"],
+    "content": "The chunk text content...",
+    "metadata": {
+      "chunk_id": "web_foerderungen_001_chunk_0000",
+      "source_id": "web_foerderungen_001",
+      "chunk_index": 0,
+      "source_url": "https://www.wiener-neudorf.gv.at/foerderungen",
+      "source_path": "https://www.wiener-neudorf.gv.at/foerderungen",
+      "content_type": ["funding", "renewable_energy"],
+      "language": "de",
+      "title": "Förderungen - Gemeinde Wiener Neudorf",
+      "source_type": "web",
+      "mime_type": "text/html",
+      "uploaded_by": "scraper",
+      "region": ["Villach"],
+      "target_group": ["Vereine"],
+      "funding_type": "Direkte Förderungen",
+      "status": "active",
+      "funding_amount": "",
+      "thematic_focus": ["Sport"],
+      "eligibility_criteria": "Schriftliche Antragstellung, Vereinssitz in Villach",
+      "legal_basis": "Bereichssubventionsordnung Sport, Basis-Subventionsordnung",
+      "funding_provider": ["Stadt Villach"],
+      "reference_number": 1052992,
+      "start_date": "01.01.2020",
+      "end_date": "unbegrenzt",
+      "scraped_at": "2025-06-25"
+    }
+  }
+}
+```
+
 | Field | Location | Description |
 |-------|----------|-------------|
-| `organization_id` | `payload` (top-level) | Organization/tenant boundary |
+| `municipality_id` | `payload` (top-level) | Municipality/tenant boundary |
 | `assistant_id` | `payload` (top-level) | Assistant/agent isolation |
 | `department` | `payload` (top-level) | Departments (array of strings) |
 | `content` | `payload` (top-level) | The text content of this chunk |
@@ -940,8 +997,29 @@ The payload has top-level fields for tenant/agent isolation (`organization_id`, 
 | `mime_type` | `payload.metadata` | MIME type |
 | `uploaded_by` | `payload.metadata` | Uploader identity |
 
+### Funding metadata fields (assistant_type: "funding" only)
+
+Extracted automatically via OpenAI when `assistant_type` is `"funding"`. Merged flat into `payload.metadata` alongside the standard fields. If a field name conflicts with the request body (e.g. `title`), the request body value wins.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Title of the funding program |
+| `region` | array of strings | Geographic regions/municipalities |
+| `target_group` | array of strings | Target groups (e.g. Vereine, Privatpersonen) |
+| `funding_type` | string | Funding type (e.g. Direkte Förderungen, Zuschuss) |
+| `status` | string | `active`, `inactive`, `expiring`, or `unknown` |
+| `funding_amount` | string | Funding amount or range (empty if unknown) |
+| `thematic_focus` | array of strings | Thematic focus areas (e.g. Sport, Umwelt) |
+| `eligibility_criteria` | string | Eligibility criteria and requirements |
+| `legal_basis` | string | Legal basis or regulation |
+| `funding_provider` | array of strings | Funding provider organizations |
+| `reference_number` | string/null | Reference number or ID |
+| `start_date` | string | Start date (DD.MM.YYYY) or empty |
+| `end_date` | string | End date (DD.MM.YYYY), `unbegrenzt`, or empty |
+| `scraped_at` | string | Date of extraction (YYYY-MM-DD) |
+
 ### Error codes
-`VALIDATION_EMPTY_CONTENT`, `EMBEDDING_MODEL_NOT_LOADED`, `EMBEDDING_FAILED`, `EMBEDDING_OOM`, `QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, `QDRANT_UPSERT_FAILED`, `QDRANT_DISK_FULL`, `CLASSIFY_FAILED`
+`VALIDATION_EMPTY_CONTENT`, `CONTENT_TYPE_MISMATCH`, `EMBEDDING_MODEL_NOT_LOADED`, `EMBEDDING_FAILED`, `EMBEDDING_OOM`, `QDRANT_CONNECTION_FAILED`, `QDRANT_COLLECTION_NOT_FOUND`, `QDRANT_UPSERT_FAILED`, `QDRANT_DISK_FULL`, `CLASSIFY_FAILED`
 
 ---
 
@@ -976,7 +1054,7 @@ curl -X DELETE "https://your-domain/api/v1/online/vectors/web_foerderungen_001?c
 
 Delete vectors matching metadata filters. All filters are combined with **AND** logic — only points matching every condition are deleted.
 
-**Filterable metadata fields:** `source_id`, `source_url`, `source_type`, `content_type`, `assistant_id`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
+**Filterable metadata fields:** `source_id`, `source_url`, `source_type`, `content_type`, `assistant_id`, `municipality_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
 
 ### Case 1: Delete all vectors for an assistant
 
@@ -1001,7 +1079,7 @@ curl -X POST "https://your-domain/api/v1/online/vectors/delete-by-filter" \
   "collection_name": "wiener-neudorf",
   "filters": [
     {"key": "content_type", "value": "funding"},
-    {"key": "organization_id", "value": "org_wiener_neudorf"}
+    {"key": "municipality_id", "value": "wiener-neudorf"}
   ]
 }
 ```
@@ -1014,7 +1092,7 @@ curl -X POST "https://your-domain/api/v1/online/vectors/delete-by-filter" \
     "vectors_deleted": 12,
     "filters_applied": [
       {"key": "content_type", "value": "funding"},
-      {"key": "organization_id", "value": "org_wiener_neudorf"}
+      {"key": "municipality_id", "value": "wiener-neudorf"}
     ]
   },
   "request_id": "..."
@@ -1307,7 +1385,7 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
       "uploaded_by": "moderator_01",
       "source_type": "smb",
       "mime_type": "application/pdf",
-      "organization_id": "org_wiener_neudorf",
+      "municipality_id": "wiener-neudorf",
       "department": ["Bauamt"]
     },
     "chunking": {
@@ -1402,7 +1480,7 @@ curl -X POST "https://your-domain/api/v1/local/ingest" \
 | `uploaded_by` | string | No | User or service that uploaded |
 | `source_type` | string | No | `smb`, `r2`, or `web` |
 | `mime_type` | string | No | Original file MIME type |
-| `organization_id` | string | No | Organization/tenant ID (stored at payload root in Qdrant) |
+| `municipality_id` | string | No | Municipality/tenant ID (stored at payload root in Qdrant) |
 | `department` | array of strings | No | Departments within organization (stored at payload root in Qdrant) |
 
 ### Chunking config
@@ -1470,7 +1548,7 @@ curl -X DELETE "https://your-domain/api/v1/local/vectors/doc_abc123?collection_n
 
 Delete vectors matching metadata filters. All filters are combined with **AND** logic — only points matching every condition are deleted.
 
-**Filterable metadata fields:** `source_id`, `source_type`, `content_type`, `acl_visibility`, `acl_department`, `organization_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
+**Filterable metadata fields:** `source_id`, `source_type`, `content_type`, `acl_visibility`, `acl_department`, `municipality_id`, `department`, `language`, `uploaded_by`, `mime_type`, `title`
 
 ### Case 1: Delete all vectors from a department
 
@@ -1506,7 +1584,7 @@ curl -X POST "https://your-domain/api/v1/local/vectors/delete-by-filter" \
 {
   "collection_name": "wiener-neudorf",
   "filters": [
-    {"key": "organization_id", "value": "org_wiener_neudorf"}
+    {"key": "municipality_id", "value": "wiener-neudorf"}
   ]
 }
 ```

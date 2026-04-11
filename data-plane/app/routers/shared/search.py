@@ -107,7 +107,7 @@ async def search(body: SearchRequest, request: Request) -> ResponseEnvelope[Sear
             ),
             metadata=SearchResultMetadata(
                 title=r.title,
-                organization_id=r.organization_id,
+                municipality_id=r.municipality_id,
                 department=r.department,
                 source_type=r.source_type,
             ),
