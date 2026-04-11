@@ -232,7 +232,7 @@ class IngestService:
                 "chunk_id", "source_id", "chunk_index", "source_url", "source_path",
                 "content_type", "language", "title", "source_type", "mime_type",
                 "uploaded_by", "assistant_id", "municipality_id", "department",
-                "assistant_type", "municipality_id",
+                "assistant_type",
             }
             for key, value in metadata.items():
                 if key not in _known_keys and value not in (None, "", []):

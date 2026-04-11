@@ -869,15 +869,16 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `collection_name` | string | Yes | — | Qdrant collection to store in (auto-created if missing) |
-| `source_id` | string | Yes | — | Unique document ID (for updates/deletes) |
-| `url` | string | Yes | — | Source URL — stored as `source_url` in Qdrant point metadata |
-| `content` | string | Yes | — | Parsed text from `/online/scrape` or `/online/document-parse` |
-| `language` | string | No | auto-detect | ISO 639-1 language code |
-| `assistant_type` | string | No | `null` | Type of assistant processing this content (e.g. `municipal`, `internal`, `public`). Stored in Qdrant metadata for search filtering. When set to `funding`, the content is pre-classified and **rejected** with `CONTENT_TYPE_MISMATCH` if the detected content type is not funding. |
-| `metadata` | object | Yes | — | Document metadata (see Online Metadata object below) |
-| `chunking` | object | No | defaults | Chunking configuration (see Chunking config below) |
-| `vector_config` | object | No | defaults | Vector storage settings (see Vector config below) |
+| `collection_name` | string | Required | — | Qdrant collection to store in (auto-created if missing) |
+| `source_id` | string | Required | — | Unique document ID (for updates/deletes) |
+| `url` | string | Required | — | Source URL — stored as `source_url` in Qdrant point metadata |
+| `content` | string | Required | — | Parsed text from `/online/scrape` or `/online/document-parse` |
+| `language` | string | Optional | auto-detect | ISO 639-1 language code |
+| `assistant_type` | string | Optional | `null` | Type of assistant processing this content (e.g. `municipal`, `internal`, `public`). Stored in Qdrant metadata for search filtering. When set to `funding`, the content is pre-classified and **rejected** with `CONTENT_TYPE_MISMATCH` if the detected content type is not funding. |
+| `country` | string | Optional | `null` | ISO 3166-1 alpha-2 country code (e.g. `AT`, `DE`, `RO`). Used by the funding extractor to constrain `state_or_province` to the official list for that country, preventing hallucinated region names. Supported: `AT`, `DE`, `CH`, `RO`, `IT`, `FR`, `HU`, `CZ`, `SK`, `SI`, `HR`. |
+| `metadata` | object | Required | — | Document metadata (see Online Metadata object below) |
+| `chunking` | object | Optional | defaults | Chunking configuration (see Chunking config below) |
+| `vector_config` | object | Optional | defaults | Vector storage settings (see Vector config below) |
 
 ### Online Metadata object
 
@@ -885,15 +886,13 @@ At least one of `assistant_id` or `municipality_id` must be provided. If neither
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `assistant_id` | string | No* | `null` | Identifier of the assistant that owns this content |
-| `title` | string | No | `null` | Document/page title (shown in search results) |
-| `uploaded_by` | string | No | `null` | User or service that triggered ingestion |
-| `source_type` | string | No | `"web"` | Origin type (typically `web` for online content) |
-| `mime_type` | string | No | `null` | Original content MIME type |
-| `municipality_id` | string | No* | `null` | Municipality/tenant identifier |
-| `department` | array of strings | No | `[]` | Departments within the organization |
-
-> *At least one of `assistant_id` or `municipality_id` must be provided.
+| `assistant_id` | string | Optional | `null` | Identifier of the assistant that owns this content. At least one of `assistant_id` or `municipality_id` must be provided. |
+| `title` | string | Optional | `null` | Document/page title (shown in search results) |
+| `uploaded_by` | string | Optional | `null` | User or service that triggered ingestion |
+| `source_type` | string | Optional | `"web"` | Origin type (typically `web` for online content) |
+| `mime_type` | string | Optional | `null` | Original content MIME type |
+| `municipality_id` | string | Optional | `null` | Municipality/tenant identifier. At least one of `assistant_id` or `municipality_id` must be provided. |
+| `department` | array of strings | Optional | `[]` | Departments within the organization |
 
 ### Vector config
 
@@ -961,7 +960,9 @@ When `assistant_type` is `"funding"`, extracted funding fields are merged flat i
       "source_type": "web",
       "mime_type": "text/html",
       "uploaded_by": "scraper",
-      "region": ["Villach"],
+      "country_code": "AT",
+      "state_or_province": ["carinthia"],
+      "city": ["villach"],
       "target_group": ["Vereine"],
       "funding_type": "Direkte Förderungen",
       "status": "active",
@@ -972,7 +973,7 @@ When `assistant_type` is `"funding"`, extracted funding fields are merged flat i
       "funding_provider": ["Stadt Villach"],
       "reference_number": 1052992,
       "start_date": "01.01.2020",
-      "end_date": "unbegrenzt",
+      "end_date": "unlimited",
       "scraped_at": "2025-06-25"
     }
   }
@@ -1001,10 +1002,16 @@ When `assistant_type` is `"funding"`, extracted funding fields are merged flat i
 
 Extracted automatically via OpenAI when `assistant_type` is `"funding"`. Merged flat into `payload.metadata` alongside the standard fields. If a field name conflicts with the request body (e.g. `title`), the request body value wins.
 
+When `country` is provided in the request body (e.g. `"AT"`), the extractor constrains `state_or_province` to the official administrative divisions for that country. If the LLM returns a value not in the known list, it is reset to empty string. This prevents hallucinated region names and ensures clean filtering.
+
+**Supported countries:** `AT`, `DE`, `CH`, `RO`, `IT`, `FR`, `HU`, `CZ`, `SK`, `SI`, `HR`. Other country codes are accepted — the extractor still works but without province validation.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `title` | string | Title of the funding program |
-| `region` | array of strings | Geographic regions/municipalities |
+| `country_code` | string | ISO 3166-1 alpha-2 (e.g. `AT`, `DE`). From request `country` or inferred from content. |
+| `state_or_province` | array of strings | Official first-level admin divisions in **english lowercase** (e.g. `["carinthia"]`, `["bavaria", "tyrol"]`). Each value validated against known list when `country` is provided — invalid entries are dropped. Empty list if unknown. |
+| `city` | array of strings | City names in **english lowercase** (e.g. `["villach"]`, `["villach", "klagenfurt"]`). Empty list if unknown. |
 | `target_group` | array of strings | Target groups (e.g. Vereine, Privatpersonen) |
 | `funding_type` | string | Funding type (e.g. Direkte Förderungen, Zuschuss) |
 | `status` | string | `active`, `inactive`, `expiring`, or `unknown` |
@@ -1015,7 +1022,7 @@ Extracted automatically via OpenAI when `assistant_type` is `"funding"`. Merged 
 | `funding_provider` | array of strings | Funding provider organizations |
 | `reference_number` | string/null | Reference number or ID |
 | `start_date` | string | Start date (DD.MM.YYYY) or empty |
-| `end_date` | string | End date (DD.MM.YYYY), `unbegrenzt`, or empty |
+| `end_date` | string | End date (DD.MM.YYYY), `unlimited`, or empty |
 | `scraped_at` | string | Date of extraction (YYYY-MM-DD) |
 
 ### Error codes

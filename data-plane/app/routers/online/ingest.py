@@ -96,7 +96,7 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
     if body.assistant_type == "funding":
         extractor = request.app.state.funding_extractor
         try:
-            funding_metadata = await extractor.extract(body.content, source_url=body.url)
+            funding_metadata = await extractor.extract(body.content, source_url=body.url, country=body.country)
         except Exception as e:
             log.warning("ingest_online_funding_extract_failed", source_id=body.source_id, error=str(e))
             # Non-fatal: proceed with ingestion even if extraction fails
