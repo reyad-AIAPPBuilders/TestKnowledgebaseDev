@@ -235,7 +235,7 @@ class IngestService:
                 "assistant_type",
             }
             for key, value in metadata.items():
-                if key not in _known_keys and value not in (None, "", []):
+                if key not in _known_keys and value is not None:
                     point_metadata[key] = value
 
             payload = {
