@@ -875,7 +875,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest" \
 | `content` | string | Required | — | Parsed text from `/online/scrape` or `/online/document-parse` |
 | `language` | string | Optional | auto-detect | ISO 639-1 language code |
 | `assistant_type` | string | Optional | `null` | Type of assistant processing this content (e.g. `municipal`, `internal`, `public`). Stored in Qdrant metadata for search filtering. When set to `funding`, the content is pre-classified and **rejected** with `CONTENT_TYPE_MISMATCH` if the detected content type is not funding. |
-| `country` | string | Optional | `null` | ISO 3166-1 alpha-2 country code (e.g. `AT`, `DE`, `RO`). Used by the funding extractor to constrain `state_or_province` to the official list for that country, preventing hallucinated region names. Supported: `AT`, `DE`, `CH`, `RO`, `IT`, `FR`, `HU`, `CZ`, `SK`, `SI`, `HR`. |
+| `country` | string | Required when `assistant_type` is `funding`, otherwise Optional | `null` | ISO 3166-1 alpha-2 country code (e.g. `AT`, `DE`, `RO`). Used by the funding extractor to constrain `state_or_province` to the official list for that country, preventing hallucinated region names. Supported: `AT`, `DE`, `CH`, `RO`, `IT`, `FR`, `HU`, `CZ`, `SK`, `SI`, `HR`. |
 | `metadata` | object | Required | — | Document metadata (see Online Metadata object below) |
 | `chunking` | object | Optional | defaults | Chunking configuration (see Chunking config below) |
 | `vector_config` | object | Optional | defaults | Vector storage settings (see Vector config below) |

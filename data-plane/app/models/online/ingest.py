@@ -71,8 +71,14 @@ class OnlineIngestRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Parsed/scraped text content (from /online/scrape or /online/document-parse)")
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
     assistant_type: str | None = Field(None, description="Type of assistant processing this content (e.g. 'municipal', 'internal', 'public'). Stored in Qdrant point metadata for filtering during search.")
-    country: str | None = Field(None, description="ISO 3166-1 alpha-2 country code (e.g. 'AT', 'DE', 'RO'). Used by the funding extractor to constrain state_or_province to the official list for that country, preventing hallucinated region names.")
+    country: str | None = Field(None, description="ISO 3166-1 alpha-2 country code (e.g. 'AT', 'DE', 'RO'). Required when assistant_type is 'funding'. Used by the funding extractor to constrain state_or_province to the official list for that country, preventing hallucinated region names.")
     metadata: OnlineIngestMetadata = Field(..., description="Document metadata stored alongside vectors")
+
+    @model_validator(mode="after")
+    def check_country_for_funding(self) -> "OnlineIngestRequest":
+        if self.assistant_type == "funding" and not self.country:
+            raise ValueError("'country' is required when assistant_type is 'funding'")
+        return self
     chunking: OnlineChunkingConfig | None = Field(None, description="Override default chunking settings")
     vector_config: OnlineVectorConfig | None = Field(None, description="Override default vector storage settings (size, search mode)")
 
