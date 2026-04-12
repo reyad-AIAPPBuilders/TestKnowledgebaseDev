@@ -81,6 +81,8 @@ class Crawl4AIClient:
         wait_for: str | None = None,
         css_selector: str | None = None,
         timeout: int | None = None,
+        markdown_type: str = "fit",
+        exclude_tags: list[str] | None = None,
     ) -> CrawlResult:
         if not self._client:
             raise RuntimeError("Client not started — call start() first")
@@ -95,6 +97,8 @@ class Crawl4AIClient:
                     wait_for=wait_for,
                     css_selector=css_selector,
                     timeout=req_timeout,
+                    markdown_type=markdown_type,
+                    exclude_tags=exclude_tags,
                 )
                 result.duration_ms = int((time.monotonic() - start) * 1000)
                 if result.success:
@@ -109,7 +113,13 @@ class Crawl4AIClient:
         # Fallback 2: Jina Reader API
         if self._jina_key:
             try:
-                result = await self._scrape_with_jina(url, timeout=req_timeout)
+                result = await self._scrape_with_jina(
+                    url,
+                    timeout=req_timeout,
+                    markdown_type=markdown_type,
+                    exclude_tags=exclude_tags,
+                    css_selector=css_selector,
+                )
                 result.duration_ms = int((time.monotonic() - start) * 1000)
                 if result.success:
                     log.info("jina_fallback_success", url=url)
@@ -119,7 +129,12 @@ class Crawl4AIClient:
                 log.warning("jina_fallback_error", url=url, error=str(exc))
 
         # Fallback 3: Raw httpx
-        result = await self._scrape_with_httpx(url, css_selector=css_selector, timeout=req_timeout)
+        result = await self._scrape_with_httpx(
+            url,
+            css_selector=css_selector,
+            timeout=req_timeout,
+            exclude_tags=exclude_tags,
+        )
         result.duration_ms = int((time.monotonic() - start) * 1000)
         return result
 
@@ -130,6 +145,8 @@ class Crawl4AIClient:
         wait_for: str | None = None,
         css_selector: str | None = None,
         timeout: int = 30,
+        markdown_type: str = "fit",
+        exclude_tags: list[str] | None = None,
     ) -> CrawlResult:
         headers: dict[str, str] = {}
         if self._api_token:
@@ -148,6 +165,23 @@ class Crawl4AIClient:
             crawler_params["wait_for"] = f"css:{wait_for}"
         if css_selector:
             crawler_params["css_selector"] = css_selector
+        if exclude_tags:
+            crawler_params["excluded_tags"] = exclude_tags
+        if markdown_type == "fit":
+            crawler_params["markdown_generator"] = {
+                "type": "DefaultMarkdownGenerator",
+                "params": {
+                    "content_filter": {
+                        "type": "PruningContentFilter",
+                        "params": {
+                            "threshold": 0.48,
+                            "threshold_type": "fixed",
+                            "min_word_threshold": 0,
+                        },
+                    },
+                    "options": {"ignore_links": False, "escape_html": True},
+                },
+            }
 
         payload: dict = {
             "urls": [url],
@@ -177,19 +211,36 @@ class Crawl4AIClient:
             result_data = data.get("result", data)
 
         success = bool(result_data.get("success", data.get("success", False)))
-        markdown = _extract_markdown(result_data.get("markdown"))
+        markdown = _extract_markdown(result_data.get("markdown"), preferred=markdown_type)
         html = _extract_html(result_data)
         error = _extract_error(result_data)
 
         return CrawlResult(markdown=clean_markdown(markdown), html=html, success=success, error=error)
 
-    async def _scrape_with_jina(self, url: str, *, timeout: int = 30) -> CrawlResult:
+    async def _scrape_with_jina(
+        self,
+        url: str,
+        *,
+        timeout: int = 30,
+        markdown_type: str = "fit",
+        exclude_tags: list[str] | None = None,
+        css_selector: str | None = None,
+    ) -> CrawlResult:
         """Scrape a URL via Jina Reader API — returns Markdown directly."""
         headers = {
             "Authorization": f"Bearer {self._jina_key}",
             "Accept": "application/json",
             "X-Return-Format": "markdown",
         }
+        # "fit" → use readerlm-v2 engine for LLM-based main-content extraction
+        # (closest Jina analogue to Crawl4AI's PruningContentFilter).
+        # "raw" / "citations" → default engine (Jina has no citations mode).
+        if markdown_type == "fit":
+            headers["X-Engine"] = "readerlm-v2"
+        if css_selector:
+            headers["X-Target-Selector"] = css_selector
+        if exclude_tags:
+            headers["X-Remove-Selector"] = ",".join(exclude_tags)
 
         try:
             resp = await self._client.get(  # type: ignore[union-attr]
@@ -215,7 +266,14 @@ class Crawl4AIClient:
         markdown = clean_markdown(content)
         return CrawlResult(markdown=markdown, html="", success=True)
 
-    async def _scrape_with_httpx(self, url: str, *, css_selector: str | None = None, timeout: int = 30) -> CrawlResult:
+    async def _scrape_with_httpx(
+        self,
+        url: str,
+        *,
+        css_selector: str | None = None,
+        timeout: int = 30,
+        exclude_tags: list[str] | None = None,
+    ) -> CrawlResult:
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -241,6 +299,10 @@ class Crawl4AIClient:
 
         cleaned = clean_html(raw_html, css_selector)
         soup = BeautifulSoup(cleaned, "lxml")
+        if exclude_tags:
+            for selector in exclude_tags:
+                for el in soup.select(selector):
+                    el.decompose()
         markdown = clean_markdown(_html_to_markdown(soup))
 
         return CrawlResult(markdown=markdown, html=raw_html, success=True)
@@ -274,13 +336,19 @@ def _html_to_markdown(soup: BeautifulSoup) -> str:
     return "\n".join(lines)
 
 
-def _extract_markdown(markdown_value: object) -> str:
+_MARKDOWN_PRIORITY: dict[str, tuple[str, ...]] = {
+    "fit": ("fit_markdown", "markdown_with_citations", "raw_markdown"),
+    "citations": ("markdown_with_citations", "raw_markdown", "fit_markdown"),
+    "raw": ("raw_markdown", "markdown_with_citations", "fit_markdown"),
+}
+
+
+def _extract_markdown(markdown_value: object, *, preferred: str = "fit") -> str:
     if isinstance(markdown_value, str):
         return markdown_value
     if isinstance(markdown_value, dict):
-        # Prefer fit_markdown (main content only, no nav/header/footer/cookie noise)
-        # over raw_markdown (full page including all boilerplate)
-        for key in ("fit_markdown", "markdown_with_citations", "raw_markdown"):
+        keys = _MARKDOWN_PRIORITY.get(preferred, _MARKDOWN_PRIORITY["fit"])
+        for key in keys:
             value = markdown_value.get(key)
             if isinstance(value, str) and value.strip():
                 return value

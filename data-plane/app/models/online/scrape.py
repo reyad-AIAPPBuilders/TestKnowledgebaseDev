@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -7,11 +9,41 @@ class ScrapeRequest(BaseModel):
     url: str = Field(..., description="Full URL of the webpage to scrape (must start with http:// or https://)")
     inner_img: bool = Field(False, description="If true, extract and parse images found on the page (returns alt text, URL, and OCR content if available)")
     inner_docs: bool = Field(False, description="If true, extract and parse documents (PDF, DOCX, etc.) linked on the page using the document parsing backend")
+    markdown_type: Literal["fit", "raw", "citations"] = Field(
+        "fit",
+        description=(
+            "Which Markdown variant to return. "
+            "`fit` = main content only (boilerplate pruned via PruningContentFilter on Crawl4AI, "
+            "or readerlm-v2 engine on Jina fallback). "
+            "`raw` = full page including headers/nav/footer. "
+            "`citations` = full content with citation links preserved (Crawl4AI only; falls back to `raw` on Jina/httpx)."
+        ),
+    )
+    exclude_tags: list[str] | None = Field(
+        None,
+        description=(
+            "CSS selectors or tag names to remove before extraction "
+            "(e.g. `['nav', 'footer', '.sidebar']`). Applied on all backends."
+        ),
+    )
+    css_selector: str | None = Field(
+        None,
+        description=(
+            "CSS selector to scope extraction to a specific element "
+            "(e.g. `'main'` or `'article.content'`). Applied on all backends."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {"url": "https://www.wiener-neudorf.gv.at/foerderungen"},
+                {
+                    "url": "https://transparenzportal.gv.at/tdb/tp/leistung/1051580.html",
+                    "markdown_type": "fit",
+                    "exclude_tags": ["nav", "footer", "aside"],
+                    "css_selector": "main",
+                },
                 {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "inner_img": True, "inner_docs": True},
             ]
         }

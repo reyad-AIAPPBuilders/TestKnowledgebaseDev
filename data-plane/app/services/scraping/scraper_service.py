@@ -26,6 +26,8 @@ class ScrapeOptions(BaseModel):
     extract_links: bool = True
     css_selector: str | None = None
     timeout: int = Field(30, ge=1, le=120)
+    markdown_type: str = "fit"
+    exclude_tags: list[str] | None = None
 
 
 class PageMetadata(BaseModel):
@@ -143,6 +145,8 @@ class ScraperService:
                 wait_for=options.wait_for,
                 css_selector=options.css_selector,
                 timeout=options.timeout,
+                markdown_type=options.markdown_type,
+                exclude_tags=options.exclude_tags,
             )
 
             if not crawl_result.success:
