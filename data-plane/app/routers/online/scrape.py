@@ -20,6 +20,7 @@ from app.models.online.scrape import (
 from app.services.parsing.models import ParseStatus
 from app.services.scraping.document_discovery import discover_images, document_type
 from app.services.scraping.scraper_service import ScrapeOptions, ScrapeStatus
+from app.services.scraping.transparenzportal import enrich_if_applicable
 from app.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -188,6 +189,13 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             detail="Page returned no extractable content",
             request_id=request_id,
         )
+
+    content = await enrich_if_applicable(
+        body.url,
+        content,
+        html=result.html,
+        client=scraper.crawl4ai._client,
+    )
 
     # ── Parse inner images if requested ──
     inner_images: list[InnerImageData] | None = None
