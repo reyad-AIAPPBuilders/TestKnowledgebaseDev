@@ -117,6 +117,7 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             search_mode=vcfg.search_mode.value if vcfg else "semantic",
             fallback_dense_dim=ext.bge_gemma2_dense_dim if (vcfg and vcfg.enable_fallback) else None,
             content_type=body.content_type,
+            entities=body.entities.model_dump() if body.entities else None,
             deferred_metadata_task=funding_task,
         )
     except IngestError as e:

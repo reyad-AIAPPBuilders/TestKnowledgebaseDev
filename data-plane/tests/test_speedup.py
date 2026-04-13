@@ -106,20 +106,23 @@ def _base_ingest_kwargs(**overrides):
 
 
 def test_embedders_run_in_parallel():
-    """Primary + fallback should run concurrently — total wall time ≈ max,
-    not sum. Using 0.3s each: serial would be ~0.6s, parallel ~0.3s."""
+    """Primary + fallback should run concurrently — embed phase wall time ≈ max,
+    not sum. Using 0.3s each: serial would be ~600ms, parallel ~300ms.
+
+    We assert on ``embedding_time_ms`` specifically so unrelated setup cost
+    (mock construction, chunking) doesn't make the test flaky."""
     service, _ = _build_ingest_service(primary_sleep=0.3, fallback_sleep=0.3)
 
     async def run():
-        start = time.monotonic()
-        result = await service.ingest(**_base_ingest_kwargs())
-        return result, time.monotonic() - start
+        return await service.ingest(**_base_ingest_kwargs())
 
-    result, elapsed = asyncio.run(run())
+    result = asyncio.run(run())
 
     assert result.vectors_stored > 0
-    # Generous upper bound: parallel should finish well under the 0.6s serial total.
-    assert elapsed < 0.5, f"Expected parallel embed (<0.5s), got {elapsed:.3f}s"
+    assert result.embedding_time_ms < 500, (
+        f"Expected parallel embed (<500ms), got {result.embedding_time_ms}ms "
+        f"(serial baseline would be ≥600ms)"
+    )
 
 
 # ─────────────────────── deferred funding metadata ────────────────────────
@@ -179,6 +182,48 @@ def test_deferred_metadata_runs_concurrently_with_ingest():
     assert elapsed < 0.55, (
         f"Deferred task should overlap with embeds (<0.55s), got {elapsed:.3f}s"
     )
+
+
+def test_entities_stamped_into_point_metadata():
+    """Caller-supplied entities (dates, deadlines, amounts, contacts, departments)
+    are written as entity_* fields on every Qdrant point and capped per field."""
+    service, qdrant = _build_ingest_service()
+
+    supplied_entities = {
+        "dates": [f"2026-01-{d:02d}" for d in range(1, 15)],  # 14 → capped at 10
+        "deadlines": ["2026-06-30", "2026-07-15", "2026-08-01"],
+        "amounts": ["EUR 1.000", "EUR 2.000", "€ 3.500"],
+        "contacts": ["a@b.at", "c@d.de"],
+        "departments": ["Umweltamt", "Bürgerservice"],
+    }
+
+    async def run():
+        return await service.ingest(**_base_ingest_kwargs(), entities=supplied_entities)
+
+    result = asyncio.run(run())
+
+    assert result.vectors_stored > 0
+    points = qdrant.upsert_points.await_args.args[1]
+    meta = points[0]["payload"]["metadata"]
+
+    assert len(meta["entity_dates"]) == 10  # capped at 10
+    assert meta["entity_deadlines"] == ["2026-06-30", "2026-07-15", "2026-08-01"]
+    assert meta["entity_amounts"] == ["EUR 1.000", "EUR 2.000", "€ 3.500"]
+    assert meta["entity_contacts"] == ["a@b.at", "c@d.de"]
+    assert meta["entity_departments"] == ["Umweltamt", "Bürgerservice"]
+
+
+def test_entities_omitted_leaves_no_entity_fields():
+    """When entities is None and no classifier result is produced (content_type
+    path), point metadata carries no entity_* keys."""
+    service, qdrant = _build_ingest_service()
+
+    asyncio.run(service.ingest(**_base_ingest_kwargs(), entities=None))
+
+    points = qdrant.upsert_points.await_args.args[1]
+    meta = points[0]["payload"]["metadata"]
+    for key in ("entity_dates", "entity_deadlines", "entity_amounts", "entity_contacts", "entity_departments"):
+        assert key not in meta, f"{key} should not be present when entities is omitted"
 
 
 def test_deferred_metadata_failure_is_non_fatal():

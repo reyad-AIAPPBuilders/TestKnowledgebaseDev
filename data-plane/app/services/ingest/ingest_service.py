@@ -87,6 +87,7 @@ class IngestService:
         search_mode: str = "semantic",
         fallback_dense_dim: int | None = None,
         content_type: list[str] | None = None,
+        entities: dict | None = None,
         deferred_metadata_task: Awaitable[dict] | None = None,
     ) -> IngestResult:
         start = time.monotonic()
@@ -252,8 +253,22 @@ class IngestService:
                     "acl_department": acl.get("department", ""),
                 })
 
-            # Add entity data if available
-            if classify_result:
+            # Add entity data if available. Caller-supplied ``entities`` wins
+            # over the classifier (online ingest supplies them from the
+            # upstream scrape/parse response; local ingest falls through to
+            # the classifier's own extraction).
+            if entities:
+                if entities.get("dates"):
+                    point_metadata["entity_dates"] = entities["dates"][:10]
+                if entities.get("deadlines"):
+                    point_metadata["entity_deadlines"] = entities["deadlines"][:5]
+                if entities.get("amounts"):
+                    point_metadata["entity_amounts"] = entities["amounts"][:10]
+                if entities.get("contacts"):
+                    point_metadata["entity_contacts"] = entities["contacts"][:10]
+                if entities.get("departments"):
+                    point_metadata["entity_departments"] = entities["departments"][:5]
+            elif classify_result:
                 point_metadata["entity_amounts"] = classify_result.entities.amounts[:5]
                 point_metadata["entity_deadlines"] = classify_result.entities.deadlines[:5]
 

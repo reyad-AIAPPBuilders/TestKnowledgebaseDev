@@ -2,6 +2,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.models.classify import ExtractedEntities
+
 
 class SearchMode(str, Enum):
     """Vector search strategy for Qdrant storage."""
@@ -70,6 +72,7 @@ class OnlineIngestRequest(BaseModel):
     url: str = Field(..., description="Source URL (stored as source_url in Qdrant point metadata)")
     content: str = Field(..., min_length=1, description="Parsed/scraped text content (from /online/scrape or /online/document-parse)")
     content_type: list[str] = Field(..., min_length=1, description="Content categories for this document, e.g. ['funding', 'renewable_energy']. Must be obtained upfront from /online/scrape or /online/document-parse (which now return content_type) — classification is no longer performed at ingest time.")
+    entities: ExtractedEntities | None = Field(None, description="Optional structured entities (dates, deadlines, amounts, contacts, departments) obtained from /online/scrape or /online/document-parse. When supplied, these are stored as entity_* fields in each Qdrant point's metadata for filtering. Pass null or omit if you do not want entity data stored.")
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
     assistant_type: str | None = Field(None, description="Type of assistant processing this content (e.g. 'municipal', 'internal', 'public'). Stored in Qdrant point metadata for filtering during search.")
     country: str | None = Field(None, description="ISO 3166-1 alpha-2 country code (e.g. 'AT', 'DE', 'RO'). Required when assistant_type is 'funding'. Used by the funding extractor to constrain state_or_province to the official list for that country, preventing hallucinated region names.")
