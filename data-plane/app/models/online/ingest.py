@@ -72,6 +72,7 @@ class OnlineIngestRequest(BaseModel):
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
     assistant_type: str | None = Field(None, description="Type of assistant processing this content (e.g. 'municipal', 'internal', 'public'). Stored in Qdrant point metadata for filtering during search.")
     country: str | None = Field(None, description="ISO 3166-1 alpha-2 country code (e.g. 'AT', 'DE', 'RO'). Required when assistant_type is 'funding'. Used by the funding extractor to constrain state_or_province to the official list for that country, preventing hallucinated region names.")
+    state_or_province: list[str] | None = Field(None, description="Optional override for the funding `state_or_province` metadata field. When omitted, the funding extractor detects and normalizes the value automatically. When provided as a non-empty list, the values are stored in Qdrant verbatim (no LLM modification, no lowercasing, no validation) — overriding anything the extractor produced.")
     metadata: OnlineIngestMetadata = Field(..., description="Document metadata stored alongside vectors")
 
     @model_validator(mode="after")

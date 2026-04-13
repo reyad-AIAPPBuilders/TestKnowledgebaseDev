@@ -120,6 +120,10 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
     metadata_dict["source_url"] = body.url
     metadata_dict["assistant_type"] = body.assistant_type
 
+    # Explicit state_or_province override from request body: stored verbatim, bypassing extractor normalization.
+    if body.state_or_province:
+        metadata_dict["state_or_province"] = body.state_or_province
+
     try:
         result = await ingest_svc.ingest(
             source_id=body.source_id,
