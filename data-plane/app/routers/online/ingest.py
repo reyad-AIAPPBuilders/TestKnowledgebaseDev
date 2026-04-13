@@ -2,6 +2,8 @@
 POST /api/v1/online/ingest — Ingest web-scraped content into the RAG pipeline.
 """
 
+import asyncio
+
 from fastapi import APIRouter, Request
 
 from app.config import ext
@@ -70,23 +72,28 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
         )
 
     # ── Funding metadata extraction (only for funding assistant) ──
-    funding_metadata: dict | None = None
+    # Launched as a task so it runs concurrently with chunking / contextual
+    # enrichment / embedding inside ingest_svc.ingest(). The ingest service
+    # awaits this task and merges its result just before building Qdrant points.
+    funding_task: asyncio.Task | None = None
     if body.assistant_type == "funding":
         extractor = request.app.state.funding_extractor
-        try:
-            funding_metadata = await extractor.extract(body.content, source_url=body.url, country=body.country)
-        except Exception as e:
-            log.warning("ingest_online_funding_extract_failed", source_id=body.source_id, error=str(e))
-            # Non-fatal: proceed with ingestion even if extraction fails
+        funding_task = asyncio.create_task(
+            _safe_extract_funding(
+                extractor,
+                body.content,
+                source_url=body.url,
+                country=body.country,
+                source_id=body.source_id,
+            )
+        )
 
     chunking = body.chunking
     vcfg = body.vector_config
-    # Build metadata: extracted funding fields first, then request body overwrites duplicates
-    request_meta = body.metadata.model_dump()
-    if funding_metadata:
-        metadata_dict = {**funding_metadata, **request_meta}
-    else:
-        metadata_dict = request_meta
+    # Request-supplied metadata wins over anything the funding extractor produces,
+    # so build the request-side dict here and let the service merge deferred
+    # funding fields under it.
+    metadata_dict = body.metadata.model_dump()
     metadata_dict["source_url"] = body.url
     metadata_dict["assistant_type"] = body.assistant_type
 
@@ -110,8 +117,11 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
             search_mode=vcfg.search_mode.value if vcfg else "semantic",
             fallback_dense_dim=ext.bge_gemma2_dense_dim if (vcfg and vcfg.enable_fallback) else None,
             content_type=body.content_type,
+            deferred_metadata_task=funding_task,
         )
     except IngestError as e:
+        if funding_task is not None and not funding_task.done():
+            funding_task.cancel()
         error_code = INGEST_ERROR_CODE_MAP.get(e.code, ErrorCode.EMBEDDING_FAILED)
         log.error("ingest_online_failed", source_id=body.source_id, error=str(e), code=e.code)
         return ResponseEnvelope(
@@ -134,3 +144,14 @@ async def ingest_online(body: OnlineIngestRequest, request: Request) -> Response
         ),
         request_id=request_id,
     )
+
+
+async def _safe_extract_funding(
+    extractor, content: str, *, source_url: str, country: str | None, source_id: str
+) -> dict:
+    """Run funding extraction; swallow errors so they don't cancel the ingest task."""
+    try:
+        return await extractor.extract(content, source_url=source_url, country=country)
+    except Exception as e:
+        log.warning("ingest_online_funding_extract_failed", source_id=source_id, error=str(e))
+        return {}

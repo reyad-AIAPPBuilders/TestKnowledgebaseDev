@@ -1,7 +1,9 @@
 """Ingest pipeline — chunks → classifies → embeds → stores in Qdrant."""
 
+import asyncio
 import time
 import uuid
+from collections.abc import Awaitable
 
 from app.config import settings
 from app.services.embedding.bge_m3_client import EmbeddingError
@@ -85,6 +87,7 @@ class IngestService:
         search_mode: str = "semantic",
         fallback_dense_dim: int | None = None,
         content_type: list[str] | None = None,
+        deferred_metadata_task: Awaitable[dict] | None = None,
     ) -> IngestResult:
         start = time.monotonic()
         collection = collection_name
@@ -158,30 +161,38 @@ class IngestService:
             "amounts": len(classify_result.entities.amounts) if classify_result else 0,
         }
 
-        # 3. Embed all chunks
+        # 3. Embed all chunks — primary + fallback run in parallel so
+        # total embed latency is max(primary, fallback) instead of the sum.
         embed_start = time.monotonic()
 
-        # Primary embedder (OpenAI for online, BGE-M3 for local)
+        primary_task = asyncio.create_task(self._embedder.embed_batch(chunk_result.chunks))
+        fallback_task: asyncio.Task | None = None
+        if use_multi_vector:
+            fallback_task = asyncio.create_task(self._fallback_embedder.embed_batch(chunk_result.chunks))
+
         openai_embeddings = None
+        primary_error: EmbeddingError | None = None
         try:
-            openai_embeddings = await self._embedder.embed_batch(chunk_result.chunks)
+            openai_embeddings = await primary_task
         except EmbeddingError as e:
-            if not use_multi_vector:
-                error_msg = str(e).lower()
-                if "oom" in error_msg or "memory" in error_msg:
-                    raise IngestError(str(e), code="EMBEDDING_OOM") from e
-                if "not initialized" in error_msg or "not loaded" in error_msg:
-                    raise IngestError(str(e), code="EMBEDDING_MODEL_NOT_LOADED") from e
-                raise IngestError(str(e), code="EMBEDDING_FAILED") from e
+            primary_error = e
             log.warning("ingest_primary_embed_failed", source_id=source_id, error=str(e))
 
-        # Fallback embedder (BGE-Gemma2 via LiteLLM)
         fallback_embeddings = None
-        if use_multi_vector:
+        if fallback_task is not None:
             try:
-                fallback_embeddings = await self._fallback_embedder.embed_batch(chunk_result.chunks)
+                fallback_embeddings = await fallback_task
             except EmbeddingError as e:
                 log.warning("ingest_fallback_embed_failed", source_id=source_id, error=str(e))
+
+        # If the only embedder failed and there's no fallback, surface the original error.
+        if not use_multi_vector and primary_error is not None:
+            error_msg = str(primary_error).lower()
+            if "oom" in error_msg or "memory" in error_msg:
+                raise IngestError(str(primary_error), code="EMBEDDING_OOM") from primary_error
+            if "not initialized" in error_msg or "not loaded" in error_msg:
+                raise IngestError(str(primary_error), code="EMBEDDING_MODEL_NOT_LOADED") from primary_error
+            raise IngestError(str(primary_error), code="EMBEDDING_FAILED") from primary_error
 
         # At least one embedding source must succeed
         if openai_embeddings is None and fallback_embeddings is None:
@@ -199,6 +210,18 @@ class IngestService:
             has_bge_gemma2=fallback_embeddings is not None,
             duration_ms=embedding_time_ms,
         )
+
+        # 3b. Await deferred metadata (e.g. funding extractor running in
+        # parallel with chunking/contextual/embed) and merge it under
+        # request-supplied metadata so explicit request fields still win.
+        if deferred_metadata_task is not None:
+            try:
+                deferred_meta = await deferred_metadata_task
+            except Exception as e:
+                log.warning("ingest_deferred_metadata_failed", source_id=source_id, error=str(e))
+                deferred_meta = None
+            if deferred_meta:
+                metadata = {**deferred_meta, **metadata}
 
         # 4. Build Qdrant points
         points = []
