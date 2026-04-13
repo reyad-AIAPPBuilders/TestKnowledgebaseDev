@@ -84,6 +84,7 @@ class IngestService:
         vector_size: int = 1536,
         search_mode: str = "semantic",
         fallback_dense_dim: int | None = None,
+        content_type: list[str] | None = None,
     ) -> IngestResult:
         start = time.monotonic()
         collection = collection_name
@@ -134,17 +135,23 @@ class IngestService:
             except Exception as e:
                 log.warning("ingest_contextual_enrichment_failed", source_id=source_id, error=str(e))
 
-        # 2. Classify (on full content for better accuracy)
-        try:
-            classify_result = await self._classifier.classify(content, language=language or "de")
-        except Exception as e:
-            log.warning("ingest_classify_fallback", source_id=source_id, error=str(e))
-            classify_result = None
-
-        if classify_result:
-            classification = [classify_result.category.value] + classify_result.sub_categories
+        # 2. Classify (on full content for better accuracy) — skipped when
+        # the caller already supplies content_type (e.g. online ingest, where
+        # classification happens upstream at scrape/parse time).
+        classify_result = None
+        if content_type is not None:
+            classification = content_type
         else:
-            classification = ["general"]
+            try:
+                classify_result = await self._classifier.classify(content, language=language or "de")
+            except Exception as e:
+                log.warning("ingest_classify_fallback", source_id=source_id, error=str(e))
+                classify_result = None
+
+            if classify_result:
+                classification = [classify_result.category.value] + classify_result.sub_categories
+            else:
+                classification = ["general"]
         entities_extracted = {
             "dates": len(classify_result.entities.dates) if classify_result else 0,
             "contacts": len(classify_result.entities.contacts) if classify_result else 0,

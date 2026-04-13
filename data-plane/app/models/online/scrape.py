@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.models.classify import ExtractedEntities
+
 
 class ScrapeRequest(BaseModel):
     """Request to scrape a single webpage and extract its content as Markdown."""
@@ -84,6 +86,8 @@ class ScrapeData(BaseModel):
     language: str | None = Field(None, description="Detected language (ISO 639-1 code, e.g. 'de')")
     links_found: int = Field(0, description="Number of links discovered on the page")
     last_modified: str | None = Field(None, description="Last-Modified header value if present")
+    content_type: list[str] = Field(default_factory=list, description="Classifier-derived content categories for the page (e.g. ['funding', 'renewable_energy']). Pass this verbatim to /online/ingest.")
+    entities: ExtractedEntities | None = Field(None, description="Structured entities extracted by the classifier (dates, deadlines, amounts, contacts, departments). Null when classification failed.")
     inner_images: list[InnerImageData] | None = Field(None, description="Parsed images found on the page (only when inner_img=true)")
     inner_documents: list[InnerDocData] | None = Field(None, description="Parsed documents linked on the page (only when inner_docs=true)")
 

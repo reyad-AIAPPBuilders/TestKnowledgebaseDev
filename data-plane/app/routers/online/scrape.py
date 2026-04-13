@@ -7,6 +7,7 @@ import asyncio
 
 from fastapi import APIRouter, Request
 
+from app.models.classify import ExtractedEntities as ClassifyEntities
 from app.models.common import ErrorCode, ResponseEnvelope
 from app.models.online.scrape import (
     CrawlData,
@@ -213,6 +214,14 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             parser, result.discovered_documents, request_id
         )
 
+    # ── Classify scraped content ──
+    content_type, entities = await _classify_content(
+        request.app.state.classifier,
+        content,
+        language=result.metadata.language,
+        source_url=result.url,
+    )
+
     return ResponseEnvelope(
         success=True,
         data=ScrapeData(
@@ -223,6 +232,8 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             language=result.metadata.language,
             links_found=len(result.discovered_links),
             last_modified=None,
+            content_type=content_type,
+            entities=entities,
             inner_images=inner_images,
             inner_documents=inner_documents,
         ),
@@ -396,6 +407,31 @@ async def _parse_inner_documents(
 
     results = await asyncio.gather(*[_parse_one(doc) for doc in documents])
     return list(results)
+
+
+async def _classify_content(
+    classifier, content: str, language: str | None, source_url: str
+) -> tuple[list[str], ClassifyEntities | None]:
+    """Run the classifier over content and return (content_type, entities).
+
+    Failures are logged and degraded to (['general'], None) — classification
+    is informational on scrape/parse, so it should not fail the request.
+    """
+    try:
+        result = await classifier.classify(content, language=language or "de")
+    except Exception as exc:
+        log.warning("classify_after_scrape_failed", url=source_url, error=str(exc))
+        return (["general"], None)
+
+    content_type = [result.category.value] + result.sub_categories
+    entities = ClassifyEntities(
+        dates=result.entities.dates,
+        deadlines=result.entities.deadlines,
+        amounts=result.entities.amounts,
+        contacts=result.entities.contacts,
+        departments=result.entities.departments,
+    )
+    return (content_type, entities)
 
 
 def _map_scrape_error(status: str, error_msg: str | None) -> str:

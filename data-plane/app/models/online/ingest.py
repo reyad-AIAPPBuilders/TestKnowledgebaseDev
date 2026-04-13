@@ -69,6 +69,7 @@ class OnlineIngestRequest(BaseModel):
     source_id: str = Field(..., description="Unique document ID. Used for updates and deletes.")
     url: str = Field(..., description="Source URL (stored as source_url in Qdrant point metadata)")
     content: str = Field(..., min_length=1, description="Parsed/scraped text content (from /online/scrape or /online/document-parse)")
+    content_type: list[str] = Field(..., min_length=1, description="Content categories for this document, e.g. ['funding', 'renewable_energy']. Must be obtained upfront from /online/scrape or /online/document-parse (which now return content_type) — classification is no longer performed at ingest time.")
     language: str | None = Field(None, description="ISO 639-1 code. Auto-detected from content if omitted.")
     assistant_type: str | None = Field(None, description="Type of assistant processing this content (e.g. 'municipal', 'internal', 'public'). Stored in Qdrant point metadata for filtering during search.")
     country: str | None = Field(None, description="ISO 3166-1 alpha-2 country code (e.g. 'AT', 'DE', 'RO'). Required when assistant_type is 'funding'. Used by the funding extractor to constrain state_or_province to the official list for that country, preventing hallucinated region names.")
@@ -91,6 +92,7 @@ class OnlineIngestRequest(BaseModel):
                     "source_id": "web_foerderungen_001",
                     "url": "https://www.wiener-neudorf.gv.at/foerderungen",
                     "content": "Förderungen der Gemeinde Wiener Neudorf\n\nDie Gemeinde bietet verschiedene Förderungen...",
+                    "content_type": ["funding", "renewable_energy"],
                     "language": "de",
                     "metadata": {
                         "assistant_id": "asst_wiener_neudorf_01",
@@ -110,14 +112,6 @@ class OnlineIngestRequest(BaseModel):
     }
 
 
-class OnlineEntityCounts(BaseModel):
-    """Count of entities extracted during classification."""
-
-    dates: int = Field(0, description="Number of dates found")
-    contacts: int = Field(0, description="Number of email addresses found")
-    amounts: int = Field(0, description="Number of monetary amounts found")
-
-
 class OnlineIngestData(BaseModel):
     """Result of the online ingest pipeline."""
 
@@ -125,7 +119,6 @@ class OnlineIngestData(BaseModel):
     chunks_created: int = Field(..., description="Number of text chunks created")
     vectors_stored: int = Field(..., description="Number of vectors stored in Qdrant")
     collection: str = Field(..., description="Qdrant collection name")
-    content_type: list[str] = Field(..., description="Auto-detected content categories (e.g. ['funding', 'renewable_energy'])")
-    entities_extracted: OnlineEntityCounts = Field(..., description="Entity extraction counts")
+    content_type: list[str] = Field(..., description="Content categories stored with the vectors (passed through from the request body)")
     embedding_time_ms: int = Field(..., description="Time spent on embedding (ms)")
     total_time_ms: int = Field(..., description="Total pipeline duration (ms)")

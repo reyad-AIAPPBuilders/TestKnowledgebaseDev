@@ -6,6 +6,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.intelligence.models import (
+    ClassifyResult,
+    ContentCategory,
+    ExtractedEntities,
+)
 from app.services.parsing.models import (
     DocumentMetadata,
     DocumentType,
@@ -44,11 +49,25 @@ def mock_parser():
 
 
 @pytest.fixture
-def client(mock_scraper, mock_sitemap_parser, mock_parser):
+def mock_classifier():
+    classifier = MagicMock()
+    classifier.classify = AsyncMock(return_value=ClassifyResult(
+        category=ContentCategory.GENERAL,
+        confidence=0.5,
+        sub_categories=[],
+        entities=ExtractedEntities(),
+        summary="",
+    ))
+    return classifier
+
+
+@pytest.fixture
+def client(mock_scraper, mock_sitemap_parser, mock_parser, mock_classifier):
     app.state._test_mode = True
     app.state.scraping = mock_scraper
     app.state.sitemap_parser = mock_sitemap_parser
     app.state.parser = mock_parser
+    app.state.classifier = mock_classifier
     with TestClient(app) as c:
         yield c
 
