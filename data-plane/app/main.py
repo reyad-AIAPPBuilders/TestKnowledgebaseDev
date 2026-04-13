@@ -15,6 +15,7 @@ from app.routers.local import parse as local_parse
 from app.routers.local import vectors as local_vectors
 from app.routers.online import collections as online_collections
 from app.routers.online import ingest as online_ingest
+from app.routers.online import ingest_stream as online_ingest_stream
 from app.routers.online import parse as online_parse
 from app.routers.online import scrape as online_scrape
 from app.routers.online import vectors as online_vectors
@@ -286,4 +287,5 @@ app.include_router(online_collections.router, dependencies=[Depends(require_api_
 app.include_router(online_scrape.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_parse.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_ingest.router, dependencies=[Depends(require_api_key)])
+app.include_router(online_ingest_stream.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_vectors.router, dependencies=[Depends(require_api_key)])

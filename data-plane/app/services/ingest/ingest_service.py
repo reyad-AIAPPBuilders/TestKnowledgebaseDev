@@ -89,11 +89,18 @@ class IngestService:
         content_type: list[str] | None = None,
         entities: dict | None = None,
         deferred_metadata_task: Awaitable[dict] | None = None,
+        progress_queue: asyncio.Queue | None = None,
     ) -> IngestResult:
         start = time.monotonic()
         collection = collection_name
         use_sparse = search_mode == "hybrid"
         use_multi_vector = self._fallback_embedder is not None and fallback_dense_dim is not None
+
+        async def _emit(phase: str, **payload) -> None:
+            if progress_queue is not None:
+                await progress_queue.put({"phase": phase, **payload})
+
+        await _emit("started", source_id=source_id)
 
         if not collection:
             raise IngestError("collection_name is required", code="QDRANT_COLLECTION_NOT_FOUND")
@@ -127,6 +134,7 @@ class IngestService:
             raise IngestError("Content produced no chunks", code="VALIDATION_EMPTY_CONTENT")
 
         log.info("ingest_chunked", source_id=source_id, chunks=chunk_result.total_chunks)
+        await _emit("chunked", chunks=chunk_result.total_chunks)
 
         # 1b. Contextual Retrieval — enrich each chunk with document-level context
         if use_contextual and self._contextual_enricher:
@@ -136,8 +144,10 @@ class IngestService:
                     chunks=chunk_result.chunks,
                 )
                 log.info("ingest_contextual_enriched", source_id=source_id, chunks=len(chunk_result.chunks))
+                await _emit("enriched", chunks=len(chunk_result.chunks))
             except Exception as e:
                 log.warning("ingest_contextual_enrichment_failed", source_id=source_id, error=str(e))
+                await _emit("enriched", chunks=len(chunk_result.chunks), error=str(e))
 
         # 2. Classify (on full content for better accuracy) — skipped when
         # the caller already supplies content_type (e.g. online ingest, where
@@ -211,6 +221,13 @@ class IngestService:
             has_bge_gemma2=fallback_embeddings is not None,
             duration_ms=embedding_time_ms,
         )
+        await _emit(
+            "embedded",
+            chunks=len(chunk_result.chunks),
+            has_openai=openai_embeddings is not None,
+            has_bge_gemma2=fallback_embeddings is not None,
+            duration_ms=embedding_time_ms,
+        )
 
         # 3b. Await deferred metadata (e.g. funding extractor running in
         # parallel with chunking/contextual/embed) and merge it under
@@ -223,6 +240,9 @@ class IngestService:
                 deferred_meta = None
             if deferred_meta:
                 metadata = {**deferred_meta, **metadata}
+                await _emit("funding_extracted", fields=sorted(deferred_meta.keys()))
+            else:
+                await _emit("funding_extracted", fields=[])
 
         # 4. Build Qdrant points
         points = []
@@ -325,6 +345,8 @@ class IngestService:
             if "not found" in error_msg:
                 raise IngestError(str(e), code="QDRANT_COLLECTION_NOT_FOUND") from e
             raise IngestError(str(e), code="QDRANT_UPSERT_FAILED") from e
+
+        await _emit("stored", vectors=vectors_stored, collection=collection)
 
         total_time_ms = int((time.monotonic() - start) * 1000)
         log.info(
