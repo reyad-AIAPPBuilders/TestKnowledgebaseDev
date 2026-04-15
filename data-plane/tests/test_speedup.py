@@ -19,8 +19,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 
-from app.services.embedding.bge_m3_client import EmbeddingResult
-from app.services.ingest.ingest_service import IngestService
+from app.services.embedding.bge_m3_client import EmbeddingError, EmbeddingResult
+from app.services.ingest.ingest_service import IngestError, IngestService
 from app.services.intelligence.chunker import Chunker
 from app.services.intelligence.contextual import ContextualEnricher
 
@@ -123,6 +123,79 @@ def test_embedders_run_in_parallel():
         f"Expected parallel embed (<500ms), got {result.embedding_time_ms}ms "
         f"(serial baseline would be ≥600ms)"
     )
+
+
+# ─────────────────────── fallback vector generation ──────────────────────
+
+
+def test_fallback_vector_written_when_primary_fails():
+    """When primary (OpenAI) embed fails but fallback (BGE-Gemma2) succeeds,
+    each Qdrant point must still be upserted carrying only the ``dense_bge_gemma2``
+    vector — no ``dense_openai`` key."""
+    service, qdrant = _build_ingest_service(
+        primary_error=EmbeddingError("OpenAI 500"),
+    )
+
+    result = asyncio.run(service.ingest(**_base_ingest_kwargs()))
+
+    assert result.vectors_stored > 0
+    points = qdrant.upsert_points.await_args.args[1]
+    assert len(points) > 0
+    for p in points:
+        vectors = p["vector"]
+        assert "dense_bge_gemma2" in vectors, "Fallback vector must be stored"
+        assert vectors["dense_bge_gemma2"], "Fallback vector must be non-empty"
+        assert "dense_openai" not in vectors, (
+            "Primary vector must be absent when primary embedder failed"
+        )
+
+
+def test_primary_vector_written_when_fallback_fails():
+    """Symmetric case: primary succeeds, fallback fails → point stored with only
+    ``dense_openai``, no ``dense_bge_gemma2`` key."""
+    service, qdrant = _build_ingest_service(
+        fallback_error=EmbeddingError("LiteLLM timeout"),
+    )
+
+    result = asyncio.run(service.ingest(**_base_ingest_kwargs()))
+
+    assert result.vectors_stored > 0
+    points = qdrant.upsert_points.await_args.args[1]
+    for p in points:
+        vectors = p["vector"]
+        assert "dense_openai" in vectors
+        assert vectors["dense_openai"]
+        assert "dense_bge_gemma2" not in vectors
+
+
+def test_both_embedders_produce_both_vectors():
+    """Happy path: both embedders succeed → each point carries both vectors."""
+    service, qdrant = _build_ingest_service()
+
+    asyncio.run(service.ingest(**_base_ingest_kwargs()))
+
+    points = qdrant.upsert_points.await_args.args[1]
+    for p in points:
+        vectors = p["vector"]
+        assert "dense_openai" in vectors and vectors["dense_openai"]
+        assert "dense_bge_gemma2" in vectors and vectors["dense_bge_gemma2"]
+
+
+def test_both_embedders_fail_raises_ingest_error():
+    """If both primary and fallback fail, ingest raises and nothing is upserted."""
+    service, qdrant = _build_ingest_service(
+        primary_error=EmbeddingError("OpenAI 500"),
+        fallback_error=EmbeddingError("LiteLLM timeout"),
+    )
+
+    try:
+        asyncio.run(service.ingest(**_base_ingest_kwargs()))
+    except IngestError as e:
+        assert e.code == "EMBEDDING_FAILED"
+    else:
+        raise AssertionError("Expected IngestError when both embedders fail")
+
+    qdrant.upsert_points.assert_not_awaited()
 
 
 # ─────────────────────── deferred funding metadata ────────────────────────
