@@ -398,15 +398,11 @@ def _extract_error(result_data: dict) -> str | None:
 
 
 def _extract_jina_links(data: dict, base_url: str) -> list[str]:
-    """Best-effort extraction of Jina links summary payload into absolute URLs."""
+    """Extract Jina links, preferring the returned links_summary.urls payload."""
     data_section = data.get("data", {})
-    candidates = (
-        data_section.get("content"),
-        data_section.get("links"),
-        data_section.get("links_summary"),
-        data.get("links"),
-        data.get("links_summary"),
-    )
+    direct_links_summary = data_section.get("links_summary")
+    if not isinstance(direct_links_summary, dict):
+        direct_links_summary = data.get("links_summary")
 
     urls: list[str] = []
     seen: set[str] = set()
@@ -420,6 +416,23 @@ def _extract_jina_links(data: dict, base_url: str) -> list[str]:
             return
         seen.add(normalized)
         urls.append(normalized)
+
+    if isinstance(direct_links_summary, dict):
+        raw_urls = direct_links_summary.get("urls")
+        if isinstance(raw_urls, list):
+            for value in raw_urls:
+                if isinstance(value, str) and value.strip():
+                    _add_url(value)
+            if urls:
+                return urls
+
+    candidates = (
+        data_section.get("content"),
+        data_section.get("links"),
+        data_section.get("links_summary"),
+        data.get("links"),
+        data.get("links_summary"),
+    )
 
     def _extract_urls_from_text(text: str) -> None:
         for match in re.findall(r"https?://[^\s<>)\\]\"']+", text):

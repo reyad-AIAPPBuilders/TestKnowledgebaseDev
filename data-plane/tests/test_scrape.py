@@ -17,6 +17,7 @@ from app.services.parsing.models import (
     ParseResult,
     ParseStatus,
 )
+from app.services.scraping.crawl4ai_client import _extract_jina_links
 from app.services.scraping.scraper_service import (
     DiscoveredDocument,
     PageMetadata,
@@ -554,3 +555,25 @@ def test_scrape_both_inner_img_and_docs(client, mock_scraper, mock_parser):
     assert data["data"]["inner_documents"] is not None
     assert len(data["data"]["inner_documents"]) == 1
     assert data["data"]["inner_documents"][0]["content"] == "Report content."
+
+
+def test_extract_jina_links_prefers_direct_links_summary_urls():
+    data = {
+        "data": {
+            "links_summary": {
+                "urls": [
+                    "/news/article-1",
+                    "https://example.test/resources/feed.xml",
+                    "/programs/open-call",
+                ]
+            }
+        }
+    }
+
+    links = _extract_jina_links(data, "https://example.test/")
+
+    assert links == [
+        "https://example.test/news/article-1",
+        "https://example.test/resources/feed.xml",
+        "https://example.test/programs/open-call",
+    ]
