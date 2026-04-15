@@ -1120,6 +1120,46 @@ curl -X POST "https://your-domain/api/v1/online/vectors/delete-by-filter" \
 
 ---
 
+## `POST /api/v1/online/vectors/sparse-encode`
+
+Encode arbitrary text into a Qdrant-compatible BM25 sparse vector using the same encoder that `POST /online/ingest` runs in `hybrid` mode (and that hybrid search uses for query encoding). Useful when a caller needs to reproduce the exact `sparse` vector that ingest would have stored, without going through the full ingest pipeline.
+
+**Tokenization:** lowercased, split on non-alphanumeric, German + English stopwords removed, single-character tokens dropped. Each surviving token is hashed (MD5 mod 2^31-1) into the sparse index space; the value is the raw term frequency. Qdrant's IDF modifier on the collection handles inverse-document-frequency weighting at query time.
+
+**Request:**
+```bash
+curl -X POST "https://your-domain/api/v1/online/vectors/sparse-encode" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "content": "Förderungen der Gemeinde Wiener Neudorf für Photovoltaik."
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "indices": [1115783198, 1136366200, 1236662434, 1585432512, 1740055052, 1864074548],
+    "values": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    "term_count": 6
+  },
+  "request_id": "..."
+}
+```
+
+### Request fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | Yes | Text to encode (must be non-empty after trim) |
+
+### Error codes
+`VALIDATION_EMPTY_CONTENT`
+
+---
+
 # Local Endpoints
 
 Local endpoints do **not** require an `X-API-Key` header. They are designed for trusted network environments (on-premise, internal network).
@@ -1699,6 +1739,7 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 | POST | `/api/v1/online/ingest` | Chunk + embed + store web content | HMAC + API Key |
 | DELETE | `/api/v1/online/vectors/{source_id}` | Delete document vectors | HMAC + API Key |
 | POST | `/api/v1/online/vectors/delete-by-filter` | Delete vectors by metadata filter | HMAC + API Key |
+| POST | `/api/v1/online/vectors/sparse-encode` | BM25 sparse-encode arbitrary text | HMAC + API Key |
 
 ## Local Endpoints (trusted network)
 
