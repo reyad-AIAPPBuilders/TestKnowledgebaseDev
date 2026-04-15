@@ -371,8 +371,9 @@ def _extract_markdown(markdown_value: object, *, preferred: str = "fit") -> str:
 
 
 def _extract_html(result_data: dict) -> str:
-    # Prefer cleaned_html (noise elements removed) over raw html
-    for key in ("cleaned_html", "fit_html", "html"):
+    # Preserve the full rendered DOM when available so downstream link discovery
+    # can see links that may be dropped from cleaned/fit variants.
+    for key in ("html", "cleaned_html", "fit_html"):
         value = result_data.get(key)
         if isinstance(value, str) and value.strip():
             return value
