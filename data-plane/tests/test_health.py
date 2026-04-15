@@ -154,7 +154,18 @@ def test_model_health_uses_shared_env_api_key_behavior(client, monkeypatch):
         "_probe_openai_chat_model",
         AsyncMock(return_value=(True, None)),
     )
+    monkeypatch.setattr(
+        health_router,
+        "_probe_jina_reader",
+        AsyncMock(return_value=(True, None)),
+    )
 
+    app.state.scraping = MagicMock(
+        crawl4ai=MagicMock(
+            _jina_key="jina-key",
+            check_health=AsyncMock(return_value=True),
+        )
+    )
     app.state.embedder = MagicMock(embed=AsyncMock(return_value=object()))
     app.state.openai_embedder = MagicMock(
         _api_key="openai-key",
@@ -192,7 +203,18 @@ def test_model_health_returns_model_statuses(client, monkeypatch):
         "_probe_openai_chat_model",
         AsyncMock(return_value=(True, None)),
     )
+    monkeypatch.setattr(
+        health_router,
+        "_probe_jina_reader",
+        AsyncMock(return_value=(True, None)),
+    )
 
+    app.state.scraping = MagicMock(
+        crawl4ai=MagicMock(
+            _jina_key="jina-key",
+            check_health=AsyncMock(return_value=True),
+        )
+    )
     app.state.embedder = MagicMock(embed=AsyncMock(return_value=object()))
     app.state.openai_embedder = MagicMock(
         _api_key="openai-key",
@@ -227,8 +249,10 @@ def test_model_health_returns_model_statuses(client, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["healthy"] is True
-    assert len(data["models"]) == 7
+    assert len(data["models"]) == 9
     assert {item["component"] for item in data["models"]} == {
+        "scraper_crawl4ai",
+        "scraper_jina_reader",
         "local_embedding",
         "online_embedding_primary",
         "online_embedding_fallback",
@@ -246,7 +270,18 @@ def test_model_health_reports_unhealthy_components(client, monkeypatch):
         "_probe_openai_chat_model",
         AsyncMock(return_value=(False, "OpenAI HTTP 500")),
     )
+    monkeypatch.setattr(
+        health_router,
+        "_probe_jina_reader",
+        AsyncMock(return_value=(False, "Jina HTTP 502")),
+    )
 
+    app.state.scraping = MagicMock(
+        crawl4ai=MagicMock(
+            _jina_key="jina-key",
+            check_health=AsyncMock(return_value=False),
+        )
+    )
     app.state.embedder = MagicMock(embed=AsyncMock(return_value=object()))
     app.state.openai_embedder = MagicMock(
         _api_key="openai-key",
@@ -282,6 +317,8 @@ def test_model_health_reports_unhealthy_components(client, monkeypatch):
     assert data["healthy"] is False
 
     by_component = {item["component"]: item for item in data["models"]}
+    assert by_component["scraper_crawl4ai"]["healthy"] is False
+    assert by_component["scraper_jina_reader"]["healthy"] is False
     assert by_component["online_embedding_primary"]["healthy"] is False
     assert "embedding failed" in by_component["online_embedding_primary"]["detail"]
     assert by_component["content_classifier"]["healthy"] is False

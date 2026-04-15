@@ -70,6 +70,35 @@ async def _probe_openai_chat_model() -> tuple[bool, str | None]:
         return False, str(exc)
 
 
+async def _probe_jina_reader(scraping_svc: object) -> tuple[bool, str | None]:
+    crawl_client = getattr(scraping_svc, "crawl4ai", None)
+    http_client = getattr(crawl_client, "_client", None)
+    jina_key = getattr(crawl_client, "_jina_key", "")
+    jina_url = getattr(crawl_client, "_jina_url", "")
+
+    if not crawl_client or not http_client:
+        return False, "service not initialized"
+    if not jina_key:
+        return False, "JINA_API_KEY not configured"
+
+    try:
+        resp = await http_client.get(
+            f"{jina_url}/https://example.com",
+            headers={
+                "Authorization": f"Bearer {jina_key}",
+                "Accept": "application/json",
+                "X-Return-Format": "markdown",
+            },
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return True, None
+    except httpx.HTTPStatusError as exc:
+        return False, f"Jina HTTP {exc.response.status_code}"
+    except Exception as exc:
+        return False, str(exc)
+
+
 def _item(
     *,
     component: str,
@@ -220,6 +249,43 @@ async def ready(request: Request) -> ReadyResponse:
 async def model_health(request: Request) -> ModelHealthResponse:
     uptime = _uptime(request)
     models: list[ModelHealthItem] = []
+
+    scraping_svc = getattr(request.app.state, "scraping", None)
+    crawl4ai_client = getattr(scraping_svc, "crawl4ai", None)
+    crawl4ai_ok, crawl4ai_detail = (
+        (await crawl4ai_client.check_health(), None)
+        if crawl4ai_client
+        else (False, "service not initialized")
+    )
+    models.append(
+        _item(
+            component="scraper_crawl4ai",
+            task="javascript-rendered web scraping",
+            provider="crawl4ai",
+            model="crawl4ai",
+            configured=crawl4ai_client is not None,
+            healthy=crawl4ai_ok,
+            detail=crawl4ai_detail,
+        )
+    )
+
+    jina_configured = bool(crawl4ai_client and getattr(crawl4ai_client, "_jina_key", ""))
+    jina_ok, jina_detail = (
+        await _probe_jina_reader(scraping_svc)
+        if jina_configured
+        else (False, "JINA_API_KEY not configured" if crawl4ai_client else "service not initialized")
+    )
+    models.append(
+        _item(
+            component="scraper_jina_reader",
+            task="reader-based web scraping fallback",
+            provider="jina",
+            model="jina-reader",
+            configured=jina_configured,
+            healthy=jina_ok,
+            detail=jina_detail,
+        )
+    )
 
     embedder = getattr(request.app.state, "embedder", None)
     local_ok, local_detail = await _probe_component(embedder, "embed") if embedder else (False, "service not initialized")
