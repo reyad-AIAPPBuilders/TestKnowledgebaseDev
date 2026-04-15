@@ -1,4 +1,5 @@
 import random
+import re
 import time
 from urllib.parse import urljoin, urlparse
 
@@ -400,6 +401,7 @@ def _extract_jina_links(data: dict, base_url: str) -> list[str]:
     """Best-effort extraction of Jina links summary payload into absolute URLs."""
     data_section = data.get("data", {})
     candidates = (
+        data_section.get("content"),
         data_section.get("links"),
         data_section.get("links_summary"),
         data.get("links"),
@@ -419,10 +421,22 @@ def _extract_jina_links(data: dict, base_url: str) -> list[str]:
         seen.add(normalized)
         urls.append(normalized)
 
+    def _extract_urls_from_text(text: str) -> None:
+        for match in re.findall(r"https?://[^\s<>)\\]\"']+", text):
+            _add_url(match.rstrip(".,;:!?"))
+
+        for match in re.findall(r"\[[^\]]*\]\((https?://[^)\s]+)\)", text):
+            _add_url(match.rstrip(".,;:!?"))
+
     def _walk(value: object) -> None:
         if isinstance(value, str):
-            if value.strip():
-                _add_url(value)
+            text = value.strip()
+            if not text:
+                return
+            if text.startswith(("http://", "https://")) and " " not in text and "\n" not in text:
+                _add_url(text)
+                return
+            _extract_urls_from_text(text)
             return
         if isinstance(value, dict):
             for key in ("url", "href", "link"):
