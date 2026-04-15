@@ -44,6 +44,17 @@ class ScrapeRequest(BaseModel):
             "selected one fails, so results are always best-effort."
         ),
     )
+    links_summary: bool = Field(
+        False,
+        description=(
+            "If true, include a `links_summary.urls` list in the response — deduped "
+            "http/https page links extracted from the raw page HTML (not the fit-filtered "
+            "HTML), so no boilerplate/footer links are missed. "
+            "`documents` and `images` sub-lists are populated only when `inner_docs` / "
+            "`inner_img` are also true respectively, so the client opts in per kind. "
+            "Triggers one extra raw-HTML fetch (~small)."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -57,6 +68,7 @@ class ScrapeRequest(BaseModel):
                 },
                 {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "inner_img": True, "inner_docs": True},
                 {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "scraper": "jina"},
+                {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "links_summary": True},
             ]
         }
     }
@@ -86,6 +98,18 @@ class InnerDocData(BaseModel):
     error: str | None = Field(None, description="Error message if parsing failed")
 
 
+class LinksSummary(BaseModel):
+    """Deduped URL lists extracted from the raw page HTML, grouped by kind.
+
+    `urls` is always populated when `links_summary=true`. `documents` and `images`
+    are populated only when the client also sets `inner_docs` / `inner_img`.
+    """
+
+    urls: list[str] = Field(default_factory=list, description="Unique page links (non-document http/https URLs)")
+    documents: list[str] = Field(default_factory=list, description="Unique document URLs (populated only when inner_docs=true)")
+    images: list[str] = Field(default_factory=list, description="Unique image URLs (populated only when inner_img=true)")
+
+
 class ScrapeData(BaseModel):
     """Scraped webpage content and metadata."""
 
@@ -100,6 +124,7 @@ class ScrapeData(BaseModel):
     entities: ExtractedEntities | None = Field(None, description="Structured entities extracted by the classifier (dates, deadlines, amounts, contacts, departments). Null when classification failed.")
     inner_images: list[InnerImageData] | None = Field(None, description="Parsed images found on the page (only when inner_img=true)")
     inner_documents: list[InnerDocData] | None = Field(None, description="Parsed documents linked on the page (only when inner_docs=true)")
+    links_summary: LinksSummary | None = Field(None, description="Deduped URL lists grouped by kind (only when links_summary=true)")
 
 
 class CrawlRequest(BaseModel):

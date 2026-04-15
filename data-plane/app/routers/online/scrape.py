@@ -5,6 +5,7 @@ POST /api/v1/online/crawl  — Discover URLs from site/sitemap
 
 import asyncio
 
+import httpx
 from fastapi import APIRouter, Request
 
 from app.models.classify import ExtractedEntities as ClassifyEntities
@@ -15,11 +16,16 @@ from app.models.online.scrape import (
     CrawlUrl,
     InnerDocData,
     InnerImageData,
+    LinksSummary,
     ScrapeData,
     ScrapeRequest,
 )
 from app.services.parsing.models import ParseStatus
-from app.services.scraping.document_discovery import discover_images, document_type
+from app.services.scraping.document_discovery import (
+    discover_images,
+    document_type,
+    extract_documents_and_links,
+)
 from app.services.scraping.scraper_service import ScrapeOptions, ScrapeStatus
 from app.services.scraping.transparenzportal import enrich_if_applicable
 from app.utils.logger import get_logger
@@ -86,7 +92,13 @@ def _validate_url(url: str) -> str | None:
         "linked on the page using the document parsing backend |\n"
         "| `scraper` | string | Optional | `crawl4ai` | Preferred scraping backend: `crawl4ai` "
         "(JS rendering, default) or `jina` (Jina Reader API). The non-selected backend and raw httpx "
-        "remain as automatic fallbacks if the primary fails. |\n\n"
+        "remain as automatic fallbacks if the primary fails. |\n"
+        "| `links_summary` | boolean | Optional | `false` | If true, adds a `links_summary.urls` list "
+        "to the response — deduped http/https page links extracted from the **raw** page HTML "
+        "(so nav/footer links filtered by `markdown_type='fit'` aren't missed). "
+        "`links_summary.documents` is populated only when `inner_docs=true`; "
+        "`links_summary.images` is populated only when `inner_img=true`. "
+        "Triggers one extra lightweight raw-HTML fetch. |\n\n"
         "---\n\n"
         "## Examples\n\n"
         "**Default — clean main content only:**\n"
@@ -230,6 +242,17 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             parser, result.discovered_documents, request_id
         )
 
+    # ── Build links summary if requested ──
+    links_summary: LinksSummary | None = None
+    if body.links_summary:
+        raw_html = await _fetch_raw_html(result.url) or (result.html or "")
+        links_summary = _build_links_summary(
+            raw_html,
+            result.url,
+            include_documents=body.inner_docs,
+            include_images=body.inner_img,
+        )
+
     # ── Classify scraped content ──
     content_type, entities = await _classify_content(
         request.app.state.classifier,
@@ -252,9 +275,51 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             entities=entities,
             inner_images=inner_images,
             inner_documents=inner_documents,
+            links_summary=links_summary,
         ),
         request_id=request_id,
     )
+
+
+async def _fetch_raw_html(url: str) -> str:
+    """Lightweight raw-HTML fetch for link discovery. Bypasses scraper pipelines
+    so we never extract links from filtered/cleaned HTML. Returns empty on failure."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            },
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.text
+    except Exception as exc:
+        log.warning("links_summary_raw_fetch_failed", url=url, error=str(exc))
+        return ""
+
+
+def _build_links_summary(
+    html: str,
+    base_url: str,
+    *,
+    include_documents: bool,
+    include_images: bool,
+) -> LinksSummary:
+    if not html:
+        return LinksSummary()
+    docs, page_links = extract_documents_and_links(html, base_url)
+    summary = LinksSummary(urls=page_links)
+    if include_documents:
+        summary.documents = [d.url for d in docs]
+    if include_images:
+        summary.images = [img.url for img in discover_images(html, base_url)]
+    return summary
 
 
 @router.post(

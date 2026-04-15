@@ -533,6 +533,7 @@ curl -X POST "https://your-domain/api/v1/online/scrape" \
 | `css_selector` | string | No | `null` | CSS selector to scope extraction to a specific element |
 | `inner_img` | bool | No | `false` | Extract and OCR-parse images linked on the page |
 | `inner_docs` | bool | No | `false` | Extract and parse documents (PDF, DOCX, …) linked on the page |
+| `links_summary` | bool | No | `false` | Return deduped `urls` list extracted from the **raw** page HTML (not the fit-filtered version, so nav/footer links aren't dropped). `documents` / `images` sub-lists are populated only when `inner_docs` / `inner_img` are also true. Triggers one extra raw-HTML fetch. |
 
 **Response (success):**
 ```json
@@ -548,6 +549,43 @@ curl -X POST "https://your-domain/api/v1/online/scrape" \
     "last_modified": null
   },
   "request_id": "..."
+}
+```
+
+**Response with `links_summary: true`** (only `urls` populated):
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://www.wiener-neudorf.gv.at/foerderungen",
+    "title": "Förderungen - Gemeinde Wiener Neudorf",
+    "content": "# Förderungen\n…",
+    "content_length": 5200,
+    "language": "de",
+    "links_found": 45,
+    "last_modified": null,
+    "links_summary": {
+      "urls": [
+        "https://www.wiener-neudorf.gv.at/",
+        "https://www.wiener-neudorf.gv.at/kontakt",
+        "https://www.wiener-neudorf.gv.at/service/"
+      ],
+      "documents": [],
+      "images": []
+    }
+  },
+  "request_id": "..."
+}
+```
+
+**Response with `links_summary: true` + `inner_docs: true` + `inner_img: true`** (all three lists populated):
+```json
+{
+  "links_summary": {
+    "urls": ["https://www.wiener-neudorf.gv.at/", "…"],
+    "documents": ["https://www.wiener-neudorf.gv.at/downloads/antrag.pdf"],
+    "images": ["https://www.wiener-neudorf.gv.at/images/logo.png"]
+  }
 }
 ```
 
