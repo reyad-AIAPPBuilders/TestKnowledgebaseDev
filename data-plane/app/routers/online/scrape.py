@@ -199,7 +199,12 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
         css_selector=body.css_selector,
         scraper=body.scraper,
     )
-    result = await scraper.scrape_url(body.url, options, request_id=request_id)
+    result = await scraper.scrape_url(
+        body.url,
+        options,
+        bypass_cache=body.links_summary or body.inner_img or body.inner_docs,
+        request_id=request_id,
+    )
 
     if result.status != ScrapeStatus.SUCCESS:
         error_code = _map_scrape_error(result.status, result.error)
@@ -245,7 +250,7 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
     # ── Build links summary if requested ──
     links_summary: LinksSummary | None = None
     if body.links_summary:
-        raw_html = await _fetch_raw_html(result.url) or (result.html or "")
+        raw_html = (result.html or "") or await _fetch_raw_html(result.url)
         links_summary = _build_links_summary(
             raw_html,
             result.url,
