@@ -1,5 +1,6 @@
 import random
 import time
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -32,12 +33,14 @@ class CrawlResult:
         *,
         markdown: str = "",
         html: str = "",
+        links: list[str] | None = None,
         success: bool = True,
         error: str | None = None,
         duration_ms: int = 0,
     ):
         self.markdown = markdown
         self.html = html
+        self.links = links or []
         self.success = success
         self.error = error
         self.duration_ms = duration_ms
@@ -85,6 +88,7 @@ class Crawl4AIClient:
         timeout: int | None = None,
         markdown_type: str = "fit",
         exclude_tags: list[str] | None = None,
+        with_links_summary: bool = False,
         scraper: str = "crawl4ai",
     ) -> CrawlResult:
         if not self._client:
@@ -133,6 +137,7 @@ class Crawl4AIClient:
                         markdown_type=markdown_type,
                         exclude_tags=exclude_tags,
                         css_selector=css_selector,
+                        with_links_summary=with_links_summary,
                     )
                     result.duration_ms = int((time.monotonic() - start) * 1000)
                     if result.success:
@@ -239,6 +244,7 @@ class Crawl4AIClient:
         markdown_type: str = "fit",
         exclude_tags: list[str] | None = None,
         css_selector: str | None = None,
+        with_links_summary: bool = False,
     ) -> CrawlResult:
         """Scrape a URL via Jina Reader API — returns Markdown directly."""
         headers = {
@@ -255,6 +261,8 @@ class Crawl4AIClient:
             headers["X-Target-Selector"] = css_selector
         if exclude_tags:
             headers["X-Remove-Selector"] = ",".join(exclude_tags)
+        if with_links_summary:
+            headers["X-With-Links-Summary"] = "true"
 
         try:
             resp = await self._client.get(  # type: ignore[union-attr]
@@ -272,13 +280,13 @@ class Crawl4AIClient:
 
         data = resp.json()
         content = data.get("data", {}).get("content", "")
-        title = data.get("data", {}).get("title", "")
+        links = _extract_jina_links(data, url)
 
         if not content.strip():
             return CrawlResult(success=False, error="Jina returned empty content")
 
         markdown = clean_markdown(content)
-        return CrawlResult(markdown=markdown, html="", success=True)
+        return CrawlResult(markdown=markdown, html="", links=links, success=True)
 
     async def _scrape_with_httpx(
         self,
@@ -386,3 +394,50 @@ def _extract_error(result_data: dict) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def _extract_jina_links(data: dict, base_url: str) -> list[str]:
+    """Best-effort extraction of Jina links summary payload into absolute URLs."""
+    data_section = data.get("data", {})
+    candidates = (
+        data_section.get("links"),
+        data_section.get("links_summary"),
+        data.get("links"),
+        data.get("links_summary"),
+    )
+
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def _add_url(value: str) -> None:
+        normalized = urljoin(base_url, value.strip())
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"}:
+            return
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        urls.append(normalized)
+
+    def _walk(value: object) -> None:
+        if isinstance(value, str):
+            if value.strip():
+                _add_url(value)
+            return
+        if isinstance(value, dict):
+            for key in ("url", "href", "link"):
+                nested = value.get(key)
+                if isinstance(nested, str) and nested.strip():
+                    _add_url(nested)
+                    return
+            for nested in value.values():
+                _walk(nested)
+            return
+        if isinstance(value, list):
+            for nested in value:
+                _walk(nested)
+
+    for candidate in candidates:
+        _walk(candidate)
+
+    return urls

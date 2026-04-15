@@ -193,18 +193,14 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
     options = ScrapeOptions(
         js_render=True,
         extract_links=True,
+        with_links_summary=body.links_summary,
         timeout=30,
         markdown_type=body.markdown_type,
         exclude_tags=body.exclude_tags,
         css_selector=body.css_selector,
         scraper=body.scraper,
     )
-    result = await scraper.scrape_url(
-        body.url,
-        options,
-        bypass_cache=body.links_summary or body.inner_img or body.inner_docs,
-        request_id=request_id,
-    )
+    result = await scraper.scrape_url(body.url, options, request_id=request_id)
 
     if result.status != ScrapeStatus.SUCCESS:
         error_code = _map_scrape_error(result.status, result.error)
@@ -250,13 +246,27 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
     # ── Build links summary if requested ──
     links_summary: LinksSummary | None = None
     if body.links_summary:
-        raw_html = (result.html or "") or await _fetch_raw_html(result.url)
-        links_summary = _build_links_summary(
-            raw_html,
-            result.url,
-            include_documents=body.inner_docs,
-            include_images=body.inner_img,
-        )
+        if result.html:
+            links_summary = _build_links_summary(
+                result.html,
+                result.url,
+                include_documents=body.inner_docs,
+                include_images=body.inner_img,
+            )
+        elif result.discovered_links or result.discovered_documents:
+            links_summary = LinksSummary(
+                urls=result.discovered_links,
+                documents=[doc.url for doc in result.discovered_documents] if body.inner_docs else [],
+                images=[],
+            )
+        else:
+            raw_html = await _fetch_raw_html(result.url)
+            links_summary = _build_links_summary(
+                raw_html,
+                result.url,
+                include_documents=body.inner_docs,
+                include_images=body.inner_img,
+            )
 
     # ── Classify scraped content ──
     content_type, entities = await _classify_content(
