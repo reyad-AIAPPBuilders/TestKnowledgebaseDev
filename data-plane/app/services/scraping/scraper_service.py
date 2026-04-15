@@ -28,6 +28,7 @@ class ScrapeOptions(BaseModel):
     timeout: int = Field(30, ge=1, le=120)
     markdown_type: str = "fit"
     exclude_tags: list[str] | None = None
+    scraper: str = "crawl4ai"
 
 
 class PageMetadata(BaseModel):
@@ -147,6 +148,7 @@ class ScraperService:
                 timeout=options.timeout,
                 markdown_type=options.markdown_type,
                 exclude_tags=options.exclude_tags,
+                scraper=options.scraper,
             )
 
             if not crawl_result.success:
@@ -254,6 +256,7 @@ class ScraperService:
         max_pages: int = 50,
         same_domain_only: bool = True,
         on_progress: Callable[[int, int, str], None] | None = None,
+        scraper: str = "crawl4ai",
     ) -> tuple[list[str], list[DiscoveredDocument]]:
         """Breadth-first URL discovery using lightweight scraping."""
         visited: set[str] = set()
@@ -262,7 +265,9 @@ class ScraperService:
         queue: deque[tuple[str, int]] = deque([(root_url, 0)])
 
         root_domain = urlparse(root_url).netloc.lower()
-        discover_options = ScrapeOptions(js_render=False, extract_links=True, timeout=15)
+        discover_options = ScrapeOptions(
+            js_render=False, extract_links=True, timeout=15, scraper=scraper
+        )
 
         while queue and len(discovered_pages) < max_pages:
             current_url, depth = queue.popleft()

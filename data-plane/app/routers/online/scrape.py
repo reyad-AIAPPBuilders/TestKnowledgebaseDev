@@ -1,5 +1,5 @@
 """
-POST /api/v1/online/scrape — Scrape a single webpage (Crawl4AI)
+POST /api/v1/online/scrape — Scrape a single webpage (Crawl4AI or Jina Reader)
 POST /api/v1/online/crawl  — Discover URLs from site/sitemap
 """
 
@@ -43,8 +43,9 @@ def _validate_url(url: str) -> str | None:
     "/scrape",
     summary="Scrape a single webpage",
     description=(
-        "Scrape a webpage using **Crawl4AI** (with JavaScript rendering) and return the extracted content "
-        "as clean Markdown. Includes title, language detection, and link discovery. "
+        "Scrape a webpage using **Crawl4AI** (with JavaScript rendering) or the **Jina Reader API** "
+        "and return the extracted content as clean Markdown. Backend is selectable per request via "
+        "the `scraper` field (default `crawl4ai`). Includes title, language detection, and link discovery. "
         "Results are cached in Redis.\n\n"
         "---\n\n"
         "## How content extraction works\n\n"
@@ -82,7 +83,10 @@ def _validate_url(url: str) -> str | None:
         "| `inner_img` | boolean | Optional | `false` | Extract and OCR-parse images found on the page "
         "(returns alt text, URL, and extracted text content via LlamaParse) |\n"
         "| `inner_docs` | boolean | Optional | `false` | Extract and parse documents (PDF, DOCX, XLSX, PPTX, etc.) "
-        "linked on the page using the document parsing backend |\n\n"
+        "linked on the page using the document parsing backend |\n"
+        "| `scraper` | string | Optional | `crawl4ai` | Preferred scraping backend: `crawl4ai` "
+        "(JS rendering, default) or `jina` (Jina Reader API). The non-selected backend and raw httpx "
+        "remain as automatic fallbacks if the primary fails. |\n\n"
         "---\n\n"
         "## Examples\n\n"
         "**Default — clean main content only:**\n"
@@ -101,6 +105,10 @@ def _validate_url(url: str) -> str | None:
         "**Full page including all boilerplate:**\n"
         "```json\n"
         "{ \"url\": \"https://example.com\", \"markdown_type\": \"raw\" }\n"
+        "```\n\n"
+        "**Use Jina Reader as the primary scraper (no JS rendering):**\n"
+        "```json\n"
+        "{ \"url\": \"https://example.com/article\", \"scraper\": \"jina\" }\n"
         "```\n\n"
         "---\n\n"
         "## Content filtering tips\n\n"
@@ -125,18 +133,25 @@ def _validate_url(url: str) -> str | None:
         "| `markdown_generator` | `DefaultMarkdownGenerator` + `PruningContentFilter(threshold=0.48)` | "
         "Attached only when `markdown_type=\"fit\"` — prunes low-density boilerplate nodes |\n\n"
         "---\n\n"
-        "## Fallback chain\n\n"
-        "Every new field (`markdown_type`, `exclude_tags`, `css_selector`) is mapped to each backend — "
-        "the fallback respects your request rather than silently reverting to defaults.\n\n"
+        "## Backend selection & fallback chain\n\n"
+        "The `scraper` field selects the **primary** backend. The non-selected backend "
+        "(plus raw httpx) remain as automatic fallbacks if the primary fails — so requests "
+        "stay best-effort regardless of which backend you choose.\n\n"
+        "| `scraper` | Order tried |\n"
+        "|---|---|\n"
+        "| `crawl4ai` (default) | Crawl4AI → Jina Reader → Raw httpx |\n"
+        "| `jina` | Jina Reader → Crawl4AI → Raw httpx |\n\n"
+        "Every per-request field (`markdown_type`, `exclude_tags`, `css_selector`) is mapped to "
+        "each backend — fallbacks respect your request rather than silently reverting to defaults.\n\n"
         "| Field | Crawl4AI | Jina Reader | Raw httpx |\n"
         "|---|---|---|---|\n"
         "| `markdown_type=\"fit\"` | `PruningContentFilter` on `DefaultMarkdownGenerator` | header `X-Engine: readerlm-v2` | built-in noise strip |\n"
         "| `markdown_type=\"raw\"` / `\"citations\"` | no filter (default generator) | default engine (citations → same as raw) | default |\n"
         "| `exclude_tags` | `excluded_tags` param | header `X-Remove-Selector` | BeautifulSoup `decompose()` |\n"
         "| `css_selector` | `css_selector` param | header `X-Target-Selector` | pre-filter in `clean_html` |\n\n"
-        "Order when Crawl4AI is unavailable:\n"
+        "Backend characteristics:\n"
         "1. **Crawl4AI** — full JS rendering + heuristic/LLM extraction (best quality)\n"
-        "2. **Jina Reader API** — Markdown extraction without JS rendering (if `JINA_API_KEY` configured)\n"
+        "2. **Jina Reader API** — Markdown extraction without JS rendering (requires `JINA_API_KEY`)\n"
         "3. **Raw httpx** — basic HTTP fetch, HTML-to-Markdown conversion (no JavaScript)\n\n"
         "---\n\n"
         "## Supported document types (for `inner_docs`)\n\n"
@@ -170,6 +185,7 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
         markdown_type=body.markdown_type,
         exclude_tags=body.exclude_tags,
         css_selector=body.css_selector,
+        scraper=body.scraper,
     )
     result = await scraper.scrape_url(body.url, options, request_id=request_id)
 
@@ -261,7 +277,9 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
         "| `url` | string | Required | — | Base URL or sitemap URL to crawl |\n"
         "| `method` | string | Required | — | `sitemap` or `crawl` |\n"
         "| `max_depth` | integer | Optional | `3` | Maximum link-following depth for crawl method (1–5) |\n"
-        "| `max_urls` | integer | Optional | `500` | Maximum number of URLs to return (1–5000) |\n\n"
+        "| `max_urls` | integer | Optional | `500` | Maximum number of URLs to return (1–5000) |\n"
+        "| `scraper` | string | Optional | `crawl4ai` | Preferred scraping backend used during BFS "
+        "discovery (`crawl4ai` or `jina`). Ignored when `method=\"sitemap\"`. |\n\n"
         "---\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.\n\n"
         "**Error codes:** `VALIDATION_URL_INVALID`, `CRAWL_SITEMAP_NOT_FOUND`"
@@ -318,6 +336,7 @@ async def crawl(body: CrawlRequest, request: Request) -> ResponseEnvelope[CrawlD
         max_depth=body.max_depth,
         max_pages=body.max_urls,
         same_domain_only=True,
+        scraper=body.scraper,
     )
 
     crawl_urls = [CrawlUrl(url=u, type="page", last_modified=None) for u in pages]

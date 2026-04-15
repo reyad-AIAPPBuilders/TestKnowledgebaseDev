@@ -21,6 +21,8 @@ ACCEPT_LANGUAGES = [
     "de-AT,de;q=0.9,en;q=0.8",
     "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
     "de,en-US;q=0.9,en;q=0.8",
+    "en-US,en;q=0.9",
+    "*",
 ]
 
 
@@ -83,6 +85,7 @@ class Crawl4AIClient:
         timeout: int | None = None,
         markdown_type: str = "fit",
         exclude_tags: list[str] | None = None,
+        scraper: str = "crawl4ai",
     ) -> CrawlResult:
         if not self._client:
             raise RuntimeError("Client not started — call start() first")
@@ -90,45 +93,56 @@ class Crawl4AIClient:
         req_timeout = timeout or settings.default_timeout
         start = time.monotonic()
 
-        if js_render:
-            try:
-                result = await self._crawl_via_api(
-                    url,
-                    wait_for=wait_for,
-                    css_selector=css_selector,
-                    timeout=req_timeout,
-                    markdown_type=markdown_type,
-                    exclude_tags=exclude_tags,
-                )
-                result.duration_ms = int((time.monotonic() - start) * 1000)
-                if result.success:
-                    mark_crawl4ai("success", time.monotonic() - start)
-                    return result
-                log.warning("crawl4ai_failed_falling_back", url=url, error=result.error)
-            except Exception as exc:
-                log.warning("crawl4ai_unavailable_falling_back", url=url, error=str(exc))
+        # Build prioritized backend list based on client preference. The
+        # non-preferred backend (and raw httpx) remain as automatic fallbacks
+        # so requests stay best-effort even when the chosen backend fails.
+        if scraper == "jina":
+            backend_order = ("jina", "crawl4ai")
+        else:
+            backend_order = ("crawl4ai", "jina")
 
-            mark_crawl4ai("failed", time.monotonic() - start)
+        for backend in backend_order:
+            if backend == "crawl4ai":
+                if not js_render:
+                    continue
+                try:
+                    result = await self._crawl_via_api(
+                        url,
+                        wait_for=wait_for,
+                        css_selector=css_selector,
+                        timeout=req_timeout,
+                        markdown_type=markdown_type,
+                        exclude_tags=exclude_tags,
+                    )
+                    result.duration_ms = int((time.monotonic() - start) * 1000)
+                    if result.success:
+                        mark_crawl4ai("success", time.monotonic() - start)
+                        return result
+                    log.warning("crawl4ai_failed_falling_back", url=url, error=result.error)
+                except Exception as exc:
+                    log.warning("crawl4ai_unavailable_falling_back", url=url, error=str(exc))
+                mark_crawl4ai("failed", time.monotonic() - start)
 
-        # Fallback 2: Jina Reader API
-        if self._jina_key:
-            try:
-                result = await self._scrape_with_jina(
-                    url,
-                    timeout=req_timeout,
-                    markdown_type=markdown_type,
-                    exclude_tags=exclude_tags,
-                    css_selector=css_selector,
-                )
-                result.duration_ms = int((time.monotonic() - start) * 1000)
-                if result.success:
-                    log.info("jina_fallback_success", url=url)
-                    return result
-                log.warning("jina_fallback_failed", url=url, error=result.error)
-            except Exception as exc:
-                log.warning("jina_fallback_error", url=url, error=str(exc))
+            elif backend == "jina":
+                if not self._jina_key:
+                    continue
+                try:
+                    result = await self._scrape_with_jina(
+                        url,
+                        timeout=req_timeout,
+                        markdown_type=markdown_type,
+                        exclude_tags=exclude_tags,
+                        css_selector=css_selector,
+                    )
+                    result.duration_ms = int((time.monotonic() - start) * 1000)
+                    if result.success:
+                        log.info("jina_scrape_success", url=url, primary=(scraper == "jina"))
+                        return result
+                    log.warning("jina_scrape_failed", url=url, error=result.error)
+                except Exception as exc:
+                    log.warning("jina_scrape_error", url=url, error=str(exc))
 
-        # Fallback 3: Raw httpx
+        # Final fallback: Raw httpx
         result = await self._scrape_with_httpx(
             url,
             css_selector=css_selector,

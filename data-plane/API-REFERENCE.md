@@ -23,10 +23,10 @@ http://localhost:8000/api/v1
 
 ### 1. Online Mode — Knowledgebase from Web Content
 Update the knowledgebase using online URLs and cloud services.
-- Scrape web pages via Crawl4AI
+- Scrape web pages via Crawl4AI (default) or the Jina Reader API — selectable per request
 - Parse documents from any public URL — uses LlamaParse (cloud)
 - All online endpoints live under `/api/v1/online/`
-- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`
+- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`; optional `JINA_API_KEY` to enable the Jina backend
 
 ### 2. Local Mode — Fully Offline Document Processing
 Process documents entirely locally without any third-party APIs.
@@ -494,7 +494,8 @@ curl -X GET "https://your-domain/api/v1/online/available_collections" \
 
 ## `POST /api/v1/online/scrape`
 
-Scrape a single webpage using Crawl4AI with JavaScript rendering. Results are cached in Redis.
+Scrape a single webpage using **Crawl4AI** (JavaScript rendering) or the **Jina Reader API**.
+Backend is selectable per request via the `scraper` field. Results are cached in Redis.
 
 **Request:**
 ```bash
@@ -512,6 +513,26 @@ curl -X POST "https://your-domain/api/v1/online/scrape" \
   "url": "https://www.wiener-neudorf.gv.at/foerderungen"
 }
 ```
+
+**Request body (use Jina Reader instead of Crawl4AI):**
+```json
+{
+  "url": "https://www.wiener-neudorf.gv.at/foerderungen",
+  "scraper": "jina"
+}
+```
+
+### Request fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | Yes | — | Full URL to scrape (must start with `http://` or `https://`) |
+| `scraper` | string | No | `crawl4ai` | Preferred backend: `crawl4ai` or `jina`. The non-selected backend (and raw httpx) remain as automatic fallbacks if the primary fails. |
+| `markdown_type` | string | No | `fit` | `fit` (main content only), `raw` (full page), or `citations` (Crawl4AI only) |
+| `exclude_tags` | string[] | No | `null` | CSS selectors / tag names to drop before extraction |
+| `css_selector` | string | No | `null` | CSS selector to scope extraction to a specific element |
+| `inner_img` | bool | No | `false` | Extract and OCR-parse images linked on the page |
+| `inner_docs` | bool | No | `false` | Extract and parse documents (PDF, DOCX, …) linked on the page |
 
 **Response (success):**
 ```json
@@ -638,6 +659,7 @@ curl -X POST "https://your-domain/api/v1/online/crawl" \
 | `method` | string | Yes | — | `sitemap` or `crawl` |
 | `max_depth` | int | No | 3 | Max link-following depth (1-5) |
 | `max_urls` | int | No | 500 | Max URLs to return (1-5000) |
+| `scraper` | string | No | `crawl4ai` | Preferred backend during BFS discovery (`crawl4ai` or `jina`). Ignored when `method="sitemap"`. |
 
 ### Error codes
 `VALIDATION_URL_INVALID`, `CRAWL_SITEMAP_NOT_FOUND`
@@ -1732,7 +1754,7 @@ curl -X PUT "https://your-domain/api/v1/local/vectors/update-acl" \
 
 | Method | Endpoint | Purpose | Auth |
 |--------|----------|---------|------|
-| POST | `/api/v1/online/scrape` | Scrape webpage (Crawl4AI) | HMAC + API Key |
+| POST | `/api/v1/online/scrape` | Scrape webpage (Crawl4AI or Jina) | HMAC + API Key |
 | POST | `/api/v1/online/crawl` | Discover URLs from site/sitemap | HMAC + API Key |
 | POST | `/api/v1/online/document-parse` | Parse document from URL | HMAC + API Key |
 | POST | `/api/v1/online/document-parse/upload` | Parse uploaded file | HMAC + API Key |

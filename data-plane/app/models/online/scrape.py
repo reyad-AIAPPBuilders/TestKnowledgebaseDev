@@ -35,6 +35,15 @@ class ScrapeRequest(BaseModel):
             "(e.g. `'main'` or `'article.content'`). Applied on all backends."
         ),
     )
+    scraper: Literal["crawl4ai", "jina"] = Field(
+        "crawl4ai",
+        description=(
+            "Preferred scraping backend. `crawl4ai` (default) uses the Crawl4AI service "
+            "with full JavaScript rendering. `jina` uses the Jina Reader API. "
+            "The other backend (and raw httpx) remain as automatic fallbacks if the "
+            "selected one fails, so results are always best-effort."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -47,6 +56,7 @@ class ScrapeRequest(BaseModel):
                     "css_selector": "main",
                 },
                 {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "inner_img": True, "inner_docs": True},
+                {"url": "https://www.wiener-neudorf.gv.at/foerderungen", "scraper": "jina"},
             ]
         }
     }
@@ -99,12 +109,20 @@ class CrawlRequest(BaseModel):
     method: str = Field(..., description="Discovery method: 'sitemap' (parse XML sitemap) or 'crawl' (BFS link following)", pattern=r"^(sitemap|crawl)$")
     max_depth: int = Field(3, ge=1, le=5, description="Maximum link-following depth for crawl method")
     max_urls: int = Field(500, ge=1, le=5000, description="Maximum number of URLs to return")
+    scraper: Literal["crawl4ai", "jina"] = Field(
+        "crawl4ai",
+        description=(
+            "Preferred scraping backend used during BFS `crawl` discovery "
+            "(ignored when `method='sitemap'`). Same semantics as in `/online/scrape`."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {"url": "https://www.wiener-neudorf.gv.at/sitemap.xml", "method": "sitemap", "max_urls": 500},
                 {"url": "https://www.wiener-neudorf.gv.at", "method": "crawl", "max_depth": 3, "max_urls": 100},
+                {"url": "https://www.wiener-neudorf.gv.at", "method": "crawl", "scraper": "jina"},
             ]
         }
     }
