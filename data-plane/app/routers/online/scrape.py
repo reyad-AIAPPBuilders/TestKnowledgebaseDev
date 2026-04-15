@@ -200,7 +200,13 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
         css_selector=body.css_selector,
         scraper=body.scraper,
     )
-    result = await scraper.scrape_url(body.url, options, request_id=request_id)
+    needs_fresh_fetch = body.links_summary or body.inner_img or body.inner_docs
+    result = await scraper.scrape_url(
+        body.url,
+        options,
+        bypass_cache=needs_fresh_fetch,
+        request_id=request_id,
+    )
 
     if result.status != ScrapeStatus.SUCCESS:
         error_code = _map_scrape_error(result.status, result.error)
@@ -228,11 +234,11 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
     )
 
     # ── Parse inner images if requested ──
+    parser = request.app.state.parser
     inner_images: list[InnerImageData] | None = None
     if body.inner_img and result.html:
         discovered = discover_images(result.html, body.url)
         if discovered:
-            parser = request.app.state.parser
             inner_images = await _parse_inner_images(parser, discovered, request_id)
 
     # ── Parse inner documents if requested ──

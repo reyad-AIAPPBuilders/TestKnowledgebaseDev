@@ -92,6 +92,26 @@ def test_scrape_success(client, mock_scraper):
     assert data["data"]["content_length"] > 0
     assert data["data"]["links_found"] == 1
     assert data["request_id"]
+    mock_scraper.scrape_url.assert_awaited_once()
+    assert mock_scraper.scrape_url.await_args.kwargs["bypass_cache"] is False
+
+
+def test_scrape_bypasses_cache_for_links_summary(client, mock_scraper):
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/page",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Hello\n\nSome content here.",
+        metadata=PageMetadata(title="Hello", language="de", word_count=4),
+        discovered_links=["https://example.gv.at/other"],
+    )
+
+    response = client.post(
+        "/api/v1/online/scrape",
+        json={"url": "https://example.gv.at/page", "scraper": "jina", "links_summary": True},
+    )
+    assert response.status_code == 200
+    mock_scraper.scrape_url.assert_awaited_once()
+    assert mock_scraper.scrape_url.await_args.kwargs["bypass_cache"] is True
 
 
 def test_scrape_invalid_url(client):
