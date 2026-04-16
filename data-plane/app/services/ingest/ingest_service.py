@@ -253,7 +253,6 @@ class IngestService:
                 "source_id": source_id,
                 "chunk_index": i,
                 "source_url": metadata.get("source_url", ""),
-                "source_path": file_path,
                 "content_type": classification,
                 "language": language or "de",
                 "title": metadata.get("title", ""),
