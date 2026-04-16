@@ -20,6 +20,7 @@ class LocalIngestMetadata(BaseModel):
     mime_type: str | None = Field(None, description="Original file MIME type")
     municipality_id: str | None = Field(None, description="Municipality/tenant identifier")
     department: str | None = Field(None, description="Department within the organization (e.g. 'bauamt', 'umwelt')")
+    last_modified: str | None = Field(None, description="Last modification date/time of the source content (e.g. ISO 8601 format). Stored in Qdrant point metadata for filtering.")
 
 
 class LocalIngestRequest(BaseModel):

@@ -38,6 +38,7 @@ class OnlineIngestMetadata(BaseModel):
     mime_type: str | None = Field(None, description="Original content MIME type")
     municipality_id: str | None = Field(None, description="Municipality/tenant identifier. At least one of assistant_id or municipality_id must be provided.")
     department: list[str] = Field(default_factory=list, description="Departments within the organization")
+    last_modified: str | None = Field(None, description="Last modification date/time of the source content (e.g. ISO 8601 format). Stored in Qdrant point metadata for filtering.")
 
     @model_validator(mode="after")
     def check_at_least_one_id(self) -> "OnlineIngestMetadata":
