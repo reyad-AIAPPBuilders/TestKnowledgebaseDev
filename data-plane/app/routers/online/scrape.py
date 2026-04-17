@@ -45,6 +45,45 @@ def _validate_url(url: str) -> str | None:
     return None
 
 
+# Thin-output detection: tuned for the pattern where Crawl4AI's
+# PruningContentFilter aggressively removes tabular/label-value content (e.g.
+# Austrian government portals). Below either threshold we re-scrape in `raw`
+# mode to recover the payload.
+_THIN_WORD_THRESHOLD = 100
+_THIN_RATIO_THRESHOLD = 0.005  # markdown_len / html_len
+
+
+def _is_thin_output(markdown: str | None, html: str | None) -> bool:
+    """True when fit-mode markdown looks too sparse relative to the raw HTML.
+
+    Detection requires we have the raw HTML to compare against — without it
+    there's no reliable way to distinguish over-pruning from a genuinely
+    short page (Jina fallback, for example, returns no HTML), so we refuse
+    to retry there.
+
+    With HTML in hand, two signals are considered; either tripping flags the
+    output as thin:
+
+    - ``word_count < 100`` combined with ``len(html) > 1000`` — short
+      markdown from a non-trivial page almost always means the filter was
+      too aggressive.
+    - ``len(markdown) / len(html) < 0.005`` — catches heavy HTML pages
+      whose markdown is a thin sliver (labels/values stripped).
+    """
+    if not html:
+        return False
+    text = (markdown or "").strip()
+    if not text:
+        return True
+    word_count = len(text.split())
+    html_len = len(html)
+    if word_count < _THIN_WORD_THRESHOLD and html_len > 1000:
+        return True
+    if html_len > 0 and (len(text) / html_len) < _THIN_RATIO_THRESHOLD:
+        return True
+    return False
+
+
 @router.post(
     "/scrape",
     summary="Scrape a single webpage",
@@ -216,6 +255,35 @@ async def scrape(body: ScrapeRequest, request: Request) -> ResponseEnvelope[Scra
             detail=result.error,
             request_id=request_id,
         )
+
+    # Crawl4AI's PruningContentFilter (active in `fit` mode) sometimes eats
+    # pages whose main payload is short label/value pairs (government portals,
+    # tabular data). If the fit-mode markdown looks suspiciously sparse
+    # relative to the raw HTML we just fetched, re-run the scrape once in
+    # `raw` mode before any downstream enrichment / parsing. Skipped when the
+    # caller explicitly opted out of fit (raw / citations already bypass the
+    # filter) or when the HTML is missing (no reliable signal for thinness).
+    if (
+        result.status == ScrapeStatus.SUCCESS
+        and options.markdown_type == "fit"
+        and _is_thin_output(result.markdown, result.html)
+    ):
+        log.info(
+            "scrape_thin_output_retry_raw",
+            url=body.url,
+            markdown_len=len(result.markdown or ""),
+            html_len=len(result.html or ""),
+            word_count=len((result.markdown or "").split()),
+        )
+        raw_options = options.model_copy(update={"markdown_type": "raw"})
+        retry = await scraper.scrape_url(
+            body.url,
+            raw_options,
+            bypass_cache=True,
+            request_id=request_id,
+        )
+        if retry.status == ScrapeStatus.SUCCESS and retry.markdown:
+            result = retry
 
     content = result.markdown or ""
     if not content.strip():

@@ -17,6 +17,7 @@ from app.services.parsing.models import (
     ParseResult,
     ParseStatus,
 )
+from app.routers.online.scrape import _is_thin_output
 from app.services.scraping.crawl4ai_client import _extract_jina_links
 from app.services.scraping.scraper_service import (
     DiscoveredDocument,
@@ -161,6 +162,106 @@ def test_scrape_timeout(client, mock_scraper):
     data = response.json()
     assert data["success"] is False
     assert data["error"] == "SCRAPE_TIMEOUT"
+
+
+class TestIsThinOutput:
+    """Unit coverage for the word-count / ratio heuristic."""
+
+    def test_empty_markdown_is_thin_when_html_present(self):
+        assert _is_thin_output("", "<html>" + "x" * 2000 + "</html>") is True
+        assert _is_thin_output(None, "<html>" + "x" * 2000 + "</html>") is True
+        assert _is_thin_output("   ", "<html>" + "x" * 2000 + "</html>") is True
+
+    def test_short_markdown_is_thin_only_against_nontrivial_html(self):
+        # Short markdown + sizeable HTML (>1000 chars) → thin.
+        assert _is_thin_output("short note", "<html>" + "x" * 2000 + "</html>") is True
+        # Short markdown + trivially small HTML → genuinely short page, not thin.
+        assert _is_thin_output("short note", "<html>abc</html>") is False
+
+    def test_long_markdown_not_thin(self):
+        md = "Ausführlicher Inhalt. " * 200
+        assert _is_thin_output(md, "<html>" + "x" * 2000 + "</html>") is False
+
+    def test_ratio_signal_catches_heavy_html_thin_markdown(self):
+        # 200 words clears the word threshold, but ratio < 0.005 vs huge HTML.
+        md = "Wort " * 200
+        html = "<html>" + "x" * 500_000 + "</html>"
+        assert _is_thin_output(md, html) is True
+
+    def test_missing_html_suppresses_detection(self):
+        # Without HTML we refuse to retry — no reliable signal.
+        assert _is_thin_output("", None) is False
+        assert _is_thin_output("short", None) is False
+        assert _is_thin_output("Wort " * 200, None) is False
+
+
+def test_thin_fit_output_triggers_raw_retry(client, mock_scraper):
+    """When fit-mode markdown is suspiciously short relative to the HTML,
+    the router retransparent-retries once in raw mode and returns the
+    richer output."""
+    thin = ScrapeResult(
+        url="https://example.gv.at/labelvalue",
+        status=ScrapeStatus.SUCCESS,
+        markdown="Nur kurzer Wartungshinweis.",
+        html="<html>" + "x" * 20000 + "</html>",
+        metadata=PageMetadata(title="x", language="de", word_count=3),
+    )
+    rich = ScrapeResult(
+        url="https://example.gv.at/labelvalue",
+        status=ScrapeStatus.SUCCESS,
+        markdown="# Förderung\n\n" + ("Ausführlicher Inhalt. " * 200),
+        html="<html>" + "x" * 20000 + "</html>",
+        metadata=PageMetadata(title="Förderung", language="de", word_count=400),
+    )
+    mock_scraper.scrape_url.side_effect = [thin, rich]
+
+    response = client.post("/api/v1/online/scrape", json={"url": "https://example.gv.at/labelvalue"})
+    assert response.status_code == 200
+
+    # Two scrape calls: first fit, second raw (with bypass_cache=True).
+    assert mock_scraper.scrape_url.await_count == 2
+    first_options = mock_scraper.scrape_url.await_args_list[0].args[1]
+    retry_options = mock_scraper.scrape_url.await_args_list[1].args[1]
+    assert first_options.markdown_type == "fit"
+    assert retry_options.markdown_type == "raw"
+    assert mock_scraper.scrape_url.await_args_list[1].kwargs["bypass_cache"] is True
+
+    # The returned content is the richer raw scrape.
+    assert "Ausführlicher Inhalt" in response.json()["data"]["content"]
+
+
+def test_healthy_fit_output_does_not_retry(client, mock_scraper):
+    """A page with plenty of markdown (well over the word threshold) stays in
+    fit mode — no retry tax."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/rich",
+        status=ScrapeStatus.SUCCESS,
+        markdown="Reichhaltiger Seiteninhalt. " * 200,
+        html="<html>" + "<p>ok</p>" * 100 + "</html>",
+        metadata=PageMetadata(title="Rich", language="de", word_count=400),
+    )
+
+    response = client.post("/api/v1/online/scrape", json={"url": "https://example.gv.at/rich"})
+    assert response.status_code == 200
+    assert mock_scraper.scrape_url.await_count == 1
+
+
+def test_raw_mode_never_retries(client, mock_scraper):
+    """If the caller explicitly picked raw / citations, the fit->raw retry
+    must not fire even on thin output (there's nothing to fall back to)."""
+    mock_scraper.scrape_url.return_value = ScrapeResult(
+        url="https://example.gv.at/short",
+        status=ScrapeStatus.SUCCESS,
+        markdown="tiny",
+        html="<html>" + "x" * 20000 + "</html>",
+        metadata=PageMetadata(title="x", language="de", word_count=1),
+    )
+
+    client.post(
+        "/api/v1/online/scrape",
+        json={"url": "https://example.gv.at/short", "markdown_type": "raw"},
+    )
+    assert mock_scraper.scrape_url.await_count == 1
 
 
 def test_crawl_sitemap(client, mock_sitemap_parser):
