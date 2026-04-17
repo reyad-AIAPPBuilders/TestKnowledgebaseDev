@@ -25,15 +25,6 @@ Behaviour
 - Idempotency: strict-mode collections block filtering on unindexed keys, so
   ``metadata.source_id`` cannot be used to delete old chunks. The flow
   deletes by the indexed ``metadata.source_url`` field before upserting.
-
-Transparenzportal binding
--------------------------
-``transparenzportal.gv.at`` is an AT-only data source whose scraping path
-already runs the :func:`enrich_if_applicable` markdown enrichment in
-``/online/scrape``. This endpoint is the intended target for that enriched
-content. When the ingested URL is on transparenzportal we set
-``is_transparenzportal`` on the response and tag log events so the AT
-transparenzportal pipeline is easy to trace end-to-end.
 """
 
 import asyncio
@@ -47,7 +38,6 @@ from app.models.common import ErrorCode, ResponseEnvelope
 from app.models.online.ingest_at import OnlineIngestATData, OnlineIngestATRequest
 from app.services.embedding.bge_m3_client import EmbeddingError
 from app.services.embedding.qdrant_service import QdrantError
-from app.services.scraping.transparenzportal import is_transparenzportal
 from app.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -250,11 +240,6 @@ async def _delete_existing_by_source_url(qdrant, collection: str, source_url: st
         "3. All nine province collections as the nationwide fallback: "
         "`Burgenland`, `Kärnten`, `Niederösterreich`, `Oberösterreich`, "
         "`Salzburg`, `Steiermark`, `Tirol`, `Vorarlberg`, `Wien`.\n\n"
-        "**Transparenzportal:** `transparenzportal.gv.at` pages are the "
-        "primary AT source. Scrape them via `/online/scrape` first (which "
-        "runs the chart-data enrichment) and forward the returned content "
-        "to this endpoint. The response's `is_transparenzportal` field "
-        "reflects whether the URL matched the portal host.\n\n"
         "**Idempotency:** prior points for the same `url` are deleted via the "
         "indexed `metadata.source_url` field before upsert. Point IDs are a "
         "deterministic uuid5 over `source_id`+chunk index, so repeat ingests "
@@ -283,12 +268,10 @@ async def ingest_online_at(
             request_id=request_id,
         )
 
-    is_tp = is_transparenzportal(body.url)
     log.info(
         "ingest_online_at_received",
         source_id=body.source_id,
         url=body.url,
-        is_transparenzportal=is_tp,
     )
 
     chunker = request.app.state.chunker
@@ -320,7 +303,6 @@ async def ingest_online_at(
     log.info(
         "ingest_online_at_fanout",
         source_id=body.source_id,
-        is_transparenzportal=is_tp,
         collections=target_collections,
         extracted_raw=extracted_raw,
         extracted_resolved=extracted_resolved,
@@ -380,8 +362,6 @@ async def ingest_online_at(
     base_metadata = body.metadata.model_dump()
     base_metadata["source_url"] = body.url
     base_metadata["assistant_type"] = _AT_ASSISTANT_TYPE
-    if is_tp:
-        base_metadata["source_platform"] = "transparenzportal"
     # Funding-extractor output merged under request metadata so request wins.
     merged_metadata = {**extracted, **base_metadata} if extracted else base_metadata
     # Always store state_or_province in the German collection-name form so it
@@ -447,7 +427,6 @@ async def ingest_online_at(
     log.info(
         "ingest_online_at_complete",
         source_id=body.source_id,
-        is_transparenzportal=is_tp,
         chunks=len(chunks),
         collections=target_collections,
         vectors_stored=total_vectors,
@@ -462,7 +441,6 @@ async def ingest_online_at(
             vectors_stored=total_vectors,
             collections_written=target_collections,
             content_type=body.content_type,
-            is_transparenzportal=is_tp,
             embedding_time_ms=embedding_time_ms,
             total_time_ms=total_ms,
         ),

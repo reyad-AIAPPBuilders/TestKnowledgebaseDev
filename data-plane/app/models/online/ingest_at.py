@@ -22,8 +22,8 @@ class OnlineIngestATRequest(BaseModel):
     """
 
     source_id: str = Field(..., description="Unique document ID. Used for idempotent overwrites keyed by source_url.")
-    url: str = Field(..., description="Source URL (stored as metadata.source_url). Transparenzportal URLs (transparenzportal.gv.at) are expected here.")
-    content: str = Field(..., min_length=1, description="Parsed/scraped text content. For transparenzportal URLs this is the content returned by /online/scrape, which has already been enriched with chart data.")
+    url: str = Field(..., description="Source URL (stored as metadata.source_url).")
+    content: str = Field(..., min_length=1, description="Parsed/scraped text content from /online/scrape or /online/document-parse.")
     content_type: list[str] = Field(..., min_length=1, description="Content categories, e.g. ['funding','sport']. Obtained upstream from /online/scrape or /online/document-parse.")
     entities: ExtractedEntities | None = Field(None, description="Optional structured entities (dates, deadlines, amounts, contacts, departments) from the upstream scrape/parse call.")
     language: str | None = Field(None, description="ISO 639-1 code. Defaults to 'de' when omitted.")
@@ -45,15 +45,15 @@ class OnlineIngestATRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "source_id": "transparenzportal_1051580",
-                    "url": "https://transparenzportal.gv.at/tdb/tp/leistung/1051580.html",
-                    "content": "Sportförderung Tirol\n\n...",
+                    "source_id": "web_salzburg_sport_001",
+                    "url": "https://www.salzburg.gv.at/sport-foerderung",
+                    "content": "Sportförderung Salzburg\n\n...",
                     "content_type": ["funding", "sport"],
                     "language": "de",
                     "metadata": {
                         "assistant_id": "asst_foerder_at_01",
-                        "municipality_id": "land-tirol",
-                        "title": "Sportförderung Tirol",
+                        "municipality_id": "land-salzburg",
+                        "title": "Sportförderung Salzburg",
                         "source_type": "web",
                     },
                 }
@@ -70,6 +70,5 @@ class OnlineIngestATData(BaseModel):
     vectors_stored: int = Field(..., description="Total vectors stored across every target collection.")
     collections_written: list[str] = Field(..., description="German collection names that received the ingest (e.g. ['Tirol'], or all nine on a nationwide fan-out).")
     content_type: list[str] = Field(..., description="Content categories passed through from the request.")
-    is_transparenzportal: bool = Field(..., description="True when the source URL is on transparenzportal.gv.at.")
     embedding_time_ms: int = Field(..., description="Time spent on embedding (ms).")
     total_time_ms: int = Field(..., description="Total pipeline duration (ms).")

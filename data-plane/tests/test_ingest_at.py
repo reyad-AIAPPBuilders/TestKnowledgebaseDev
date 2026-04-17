@@ -316,36 +316,6 @@ class TestEndpoint:
             assert flt["must"][0]["key"] == "metadata.source_url"
             assert flt["must"][0]["match"]["value"] == payload["url"]
 
-    def test_transparenzportal_url_sets_flag_and_platform_metadata(self):
-        handles = _install()
-        payload = {
-            **BASE_PAYLOAD,
-            "url": "https://transparenzportal.gv.at/tdb/tp/leistung/1051580.html",
-            "state_or_province": ["Tirol"],
-        }
-
-        with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
-
-        assert r.status_code == 200
-        body = r.json()
-        assert body["data"]["is_transparenzportal"] is True
-        for p in _all_points(handles["qdrant"]):
-            assert p["payload"]["metadata"].get("source_platform") == "transparenzportal"
-
-    def test_non_transparenzportal_url_flag_false(self):
-        handles = _install()
-        payload = {**BASE_PAYLOAD, "state_or_province": ["Wien"]}
-
-        with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
-
-        assert r.status_code == 200
-        body = r.json()
-        assert body["data"]["is_transparenzportal"] is False
-        for p in _all_points(handles["qdrant"]):
-            assert "source_platform" not in p["payload"]["metadata"]
-
     def test_whitespace_only_content_returns_validation_error_envelope(self):
         _install()
         payload = {**BASE_PAYLOAD, "content": "   "}

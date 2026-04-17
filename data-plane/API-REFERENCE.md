@@ -26,7 +26,7 @@ Update the knowledgebase using online URLs and cloud services.
 - Scrape web pages via Crawl4AI (default) or the Jina Reader API — selectable per request
 - Parse documents from any public URL — uses LlamaParse (cloud)
 - All online endpoints live under `/api/v1/online/`
-- **AT funding assistant** has a dedicated endpoint — `POST /api/v1/online/ingest/at` — that writes to a separate Qdrant instance (`DP_QDRANT_URL_AT` + `DP_QDRANT_PORT_AT` + `DP_QDRANT_API_KEY_AT`) with per-province collections. See the endpoint docs below for transparenzportal binding and province fan-out semantics.
+- **AT funding assistant** has a dedicated endpoint — `POST /api/v1/online/ingest/at` — that writes to a separate Qdrant instance (`DP_QDRANT_URL_AT` + `DP_QDRANT_PORT_AT` + `DP_QDRANT_API_KEY_AT`) with per-province collections. See the endpoint docs below for province fan-out semantics.
 - Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`; optional `JINA_API_KEY` to enable the Jina backend; `DP_QDRANT_URL_AT` / `DP_QDRANT_PORT_AT` (default 443) / `DP_QDRANT_API_KEY_AT` for the AT pipeline
 
 ### 2. Local Mode — Fully Offline Document Processing
@@ -1122,14 +1122,6 @@ Every point carries an array-valued `metadata.region`:
 | One or more specific provinces | `["<collection name>"]` on each point in that collection |
 | All nine (nationwide) | `["alle"]` on every point across every collection |
 
-### Transparenzportal binding
-
-`transparenzportal.gv.at` is the canonical Austrian government funding source. Scrape those URLs via `POST /online/scrape` first — the scraper runs portal-specific chart-data enrichment on the markdown. Pass the returned content to this endpoint unchanged.
-
-When the request `url` is on `transparenzportal.gv.at`:
-- Response field `is_transparenzportal` is `true`.
-- Every stored point gets `metadata.source_platform = "transparenzportal"`.
-
 ### Idempotency
 
 Before upserting, the endpoint deletes prior points for the same `url` via `metadata.source_url` (which is indexed on the AT collections — `metadata.source_id` is not, and strict-mode Qdrant blocks unindexed filtering). Point IDs are deterministic over `(collection, source_id, chunk_index)`, so re-ingesting the same document overwrites in place.
@@ -1141,15 +1133,15 @@ curl -X POST "https://your-domain/api/v1/online/ingest/at" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
-    "source_id": "transparenzportal_1051580",
-    "url": "https://transparenzportal.gv.at/tdb/tp/leistung/1051580.html",
-    "content": "Sportförderung Tirol ...",
+    "source_id": "web_salzburg_sport_001",
+    "url": "https://www.salzburg.gv.at/sport-foerderung",
+    "content": "Sportförderung Salzburg ...",
     "content_type": ["funding", "sport"],
     "language": "de",
     "metadata": {
       "assistant_id": "asst_foerder_at_01",
-      "municipality_id": "land-tirol",
-      "title": "Sportförderung Tirol",
+      "municipality_id": "land-salzburg",
+      "title": "Sportförderung Salzburg",
       "source_type": "web"
     }
   }'
@@ -1180,12 +1172,11 @@ curl -X POST "https://your-domain/api/v1/online/ingest/at" \
 {
   "success": true,
   "data": {
-    "source_id": "transparenzportal_1051580",
+    "source_id": "web_salzburg_sport_001",
     "chunks_created": 12,
     "vectors_stored": 12,
-    "collections_written": ["Tirol"],
+    "collections_written": ["Salzburg"],
     "content_type": ["funding", "sport"],
-    "is_transparenzportal": true,
     "embedding_time_ms": 480,
     "total_time_ms": 1320
   },
@@ -1220,7 +1211,6 @@ No `country`, `collection_name`, `assistant_type`, or `vector_config` fields —
 | `vectors_stored` | int | Total vectors upserted across every collection written. |
 | `collections_written` | string[] | German collection names that received the ingest. |
 | `content_type` | string[] | Echoed from the request. |
-| `is_transparenzportal` | bool | `true` when `url` is on `transparenzportal.gv.at`. |
 | `embedding_time_ms` | int | OpenAI embedding call duration. |
 | `total_time_ms` | int | End-to-end pipeline time. |
 

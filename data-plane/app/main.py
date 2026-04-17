@@ -226,9 +226,7 @@ tags_metadata = [
         "`Salzburg`, `Steiermark`, `Tirol`, `Vorarlberg`, `Wien`.\n\n"
         "Country (AT) and assistant type (funding) are implicit. The funding extractor's "
         "`state_or_province` output selects target collections; an empty list fans out to all nine. "
-        "Callers can override by supplying `state_or_province` (German or English lowercase forms).\n\n"
-        "Naturally paired with `transparenzportal.gv.at` content scraped via `/online/scrape`, "
-        "which runs the portal-specific chart-data enrichment upstream.",
+        "Callers can override by supplying `state_or_province` (German or English lowercase forms).",
     },
     {
         "name": "Content Intelligence",
@@ -269,8 +267,8 @@ app = FastAPI(
         "- **Ingest** scraped/parsed content into Qdrant vector collections with multi-vector embeddings "
         "(OpenAI primary + BGE-Gemma2 fallback via LiteLLM)\n"
         "- **AT funding pipeline** — `POST /api/v1/online/ingest/at` is a dedicated endpoint that writes to a "
-        "separate Qdrant instance (configured via `DP_QDRANT_URL_AT` / `DP_QDRANT_API_KEY_AT`) with nine "
-        "per-province collections. Naturally paired with `transparenzportal.gv.at` content scraped via `/online/scrape`.\n"
+        "separate Qdrant instance (configured via `DP_QDRANT_URL_AT` / `DP_QDRANT_PORT_AT` / `DP_QDRANT_API_KEY_AT`) "
+        "with nine per-province collections.\n"
         "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification + primary embedding), "
         "`LITELLM_URL` (for BGE-Gemma2 fallback embedding)\n\n"
         "### 2. Local Mode — Fully Offline Document Processing (`/api/v1/local/...`)\n"
