@@ -221,7 +221,7 @@ tags_metadata = [
     {
         "name": "Online - Ingestion Pipeline (AT)",
         "description": "Dedicated ingest for the Austrian funding assistant (`POST /api/v1/online/ingest/at`). "
-        "Runs against a separate Qdrant instance (configured via `DP_QDRANT_URL_AT` / `DP_QDRANT_API_KEY_AT`) "
+        "Runs against a separate Qdrant instance (configured via `QDRANT_URL_AT` / `QDRANT_PORT_AT` / `QDRANT_API_KEY_AT`) "
         "with per-province collections: `Burgenland`, `Kärnten`, `Niederösterreich`, `Oberösterreich`, "
         "`Salzburg`, `Steiermark`, `Tirol`, `Vorarlberg`, `Wien`.\n\n"
         "Country (AT) and assistant type (funding) are implicit. The funding extractor's "
@@ -267,7 +267,7 @@ app = FastAPI(
         "- **Ingest** scraped/parsed content into Qdrant vector collections with multi-vector embeddings "
         "(OpenAI primary + BGE-Gemma2 fallback via LiteLLM)\n"
         "- **AT funding pipeline** — `POST /api/v1/online/ingest/at` is a dedicated endpoint that writes to a "
-        "separate Qdrant instance (configured via `DP_QDRANT_URL_AT` / `DP_QDRANT_PORT_AT` / `DP_QDRANT_API_KEY_AT`) "
+        "separate Qdrant instance (configured via `QDRANT_URL_AT` / `QDRANT_PORT_AT` / `QDRANT_API_KEY_AT`) "
         "with nine per-province collections.\n"
         "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification + primary embedding), "
         "`LITELLM_URL` (for BGE-Gemma2 fallback embedding)\n\n"

@@ -244,7 +244,7 @@ async def _delete_existing_by_source_url(qdrant, collection: str, source_url: st
         "indexed `metadata.source_url` field before upsert. Point IDs are a "
         "deterministic uuid5 over `source_id`+chunk index, so repeat ingests "
         "overwrite in place.\n\n"
-        "**Qdrant target:** uses `DP_QDRANT_URL_AT` / `DP_QDRANT_API_KEY_AT` "
+        "**Qdrant target:** uses `QDRANT_URL_AT` / `QDRANT_PORT_AT` / `QDRANT_API_KEY_AT` "
         "when set, falling back to the default Qdrant endpoint otherwise.\n\n"
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.\n\n"
         "**Error codes:** `VALIDATION_EMPTY_CONTENT`, `EMBEDDING_MODEL_NOT_LOADED`, "
