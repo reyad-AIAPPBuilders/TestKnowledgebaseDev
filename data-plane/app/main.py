@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import ext, settings
 from app.dependencies.api_key import require_api_key
 from app.middleware.hmac_auth import HMACAuthMiddleware
 from app.middleware.request_id import RequestIDMiddleware
@@ -15,6 +15,7 @@ from app.routers.local import parse as local_parse
 from app.routers.local import vectors as local_vectors
 from app.routers.online import collections as online_collections
 from app.routers.online import ingest as online_ingest
+from app.routers.online import ingest_at as online_ingest_at
 from app.routers.online import ingest_stream as online_ingest_stream
 from app.routers.online import parse as online_parse
 from app.routers.online import scrape as online_scrape
@@ -95,6 +96,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await qdrant.startup()
     app.state.qdrant = qdrant
 
+    # AT-specific Qdrant instance (used by the online ingest fan-out when
+    # country == "AT"). Falls back to the default Qdrant URL/key when the
+    # AT-specific env vars are not set.
+    qdrant_at = QdrantService(
+        url=ext.qdrant_url_at or ext.qdrant_url,
+        api_key=ext.qdrant_api_key_at or ext.qdrant_api_key,
+    )
+    await qdrant_at.startup()
+    app.state.qdrant_at = qdrant_at
+
     # ── Discovery ────────────────────────────────────
     smb_client = SMBClient()
     r2_client = R2Client()
@@ -104,6 +115,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # ── Ingest + Search ──────────────────────────────
     chunker = Chunker()
+    app.state.chunker = chunker
     app.state.ingest = IngestService(chunker, classifier, embedder, qdrant, contextual_enricher)
     app.state.online_ingest = IngestService(
         chunker, classifier, openai_embedder, qdrant, contextual_enricher,
@@ -122,6 +134,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await bge_gemma2_embedder.shutdown()
     await contextual_enricher.shutdown()
     await qdrant.shutdown()
+    await qdrant_at.shutdown()
     await r2_client.shutdown()
     await sitemap_parser.close()
 
@@ -197,6 +210,18 @@ tags_metadata = [
         "**Optional X-API-Key header** — required only when `DP_ONLINE_API_KEYS` is configured.",
     },
     {
+        "name": "Online - Ingestion Pipeline (AT)",
+        "description": "Dedicated ingest for the Austrian funding assistant (`POST /api/v1/online/ingest/at`). "
+        "Runs against a separate Qdrant instance (configured via `DP_QDRANT_URL_AT` / `DP_QDRANT_API_KEY_AT`) "
+        "with per-province collections: `Burgenland`, `Kärnten`, `Niederösterreich`, `Oberösterreich`, "
+        "`Salzburg`, `Steiermark`, `Tirol`, `Vorarlberg`, `Wien`.\n\n"
+        "Country (AT) and assistant type (funding) are implicit. The funding extractor's "
+        "`state_or_province` output selects target collections; an empty list fans out to all nine. "
+        "Callers can override by supplying `state_or_province` (German or English lowercase forms).\n\n"
+        "Naturally paired with `transparenzportal.gv.at` content scraped via `/online/scrape`, "
+        "which runs the portal-specific chart-data enrichment upstream.",
+    },
+    {
         "name": "Content Intelligence",
         "description": "Classify municipality content into 9 categories (funding, event, policy, contact, form, announcement, minutes, report, general) "
         "and extract structured entities (dates, deadlines, monetary amounts, email contacts, departments).",
@@ -234,6 +259,9 @@ app = FastAPI(
         "- **Parse** documents from any public URL — uses **LlamaParse** (cloud) for high-quality extraction\n"
         "- **Ingest** scraped/parsed content into Qdrant vector collections with multi-vector embeddings "
         "(OpenAI primary + BGE-Gemma2 fallback via LiteLLM)\n"
+        "- **AT funding pipeline** — `POST /api/v1/online/ingest/at` is a dedicated endpoint that writes to a "
+        "separate Qdrant instance (configured via `DP_QDRANT_URL_AT` / `DP_QDRANT_API_KEY_AT`) with nine "
+        "per-province collections. Naturally paired with `transparenzportal.gv.at` content scraped via `/online/scrape`.\n"
         "- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY` (optional), `OPENAI_API_KEY` (for classification + primary embedding), "
         "`LITELLM_URL` (for BGE-Gemma2 fallback embedding)\n\n"
         "### 2. Local Mode — Fully Offline Document Processing (`/api/v1/local/...`)\n"
@@ -287,5 +315,6 @@ app.include_router(online_collections.router, dependencies=[Depends(require_api_
 app.include_router(online_scrape.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_parse.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_ingest.router, dependencies=[Depends(require_api_key)])
+app.include_router(online_ingest_at.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_ingest_stream.router, dependencies=[Depends(require_api_key)])
 app.include_router(online_vectors.router, dependencies=[Depends(require_api_key)])

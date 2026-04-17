@@ -72,6 +72,11 @@ class ExternalSettings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = ""  # Default collection name (tenant-based)
 
+    # Qdrant — AT-specific instance used by the online ingest fan-out when
+    # country == "AT". Falls back to qdrant_url / qdrant_api_key when empty.
+    qdrant_url_at: str = ""
+    qdrant_api_key_at: str = ""
+
     # Redis
     redis_url: str = "redis://redis:6379/0"
 

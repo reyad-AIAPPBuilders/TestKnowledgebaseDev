@@ -17,14 +17,15 @@ class QdrantError(Exception):
 class QdrantService:
     """HTTP client for the Qdrant vector database."""
 
-    def __init__(self) -> None:
+    def __init__(self, url: str | None = None, api_key: str | None = None) -> None:
         self._client: httpx.AsyncClient | None = None
-        self._base_url = ext.qdrant_url.rstrip("/")
+        self._base_url = (url or ext.qdrant_url).rstrip("/")
+        self._api_key = api_key if api_key is not None else ext.qdrant_api_key
 
     async def startup(self) -> None:
         headers = {}
-        if ext.qdrant_api_key:
-            headers["api-key"] = ext.qdrant_api_key
+        if self._api_key:
+            headers["api-key"] = self._api_key
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=httpx.Timeout(30),
