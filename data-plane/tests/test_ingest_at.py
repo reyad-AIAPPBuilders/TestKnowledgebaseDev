@@ -298,6 +298,25 @@ class TestEndpoint:
             assert len(p["vector"]) == 1536
             assert all(isinstance(v, float) for v in p["vector"])
 
+    def test_metadata_omits_chunk_id_source_id_chunk_index(self):
+        """These three fields don't drive any reader and just bloat the
+        payload — they must not be written to point metadata."""
+        handles = _install()
+        payload = {**BASE_PAYLOAD, "state_or_province": ["Wien"]}
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 200
+        for p in _all_points(handles["qdrant"]):
+            md = p["payload"]["metadata"]
+            assert "chunk_id" not in md
+            assert "source_id" not in md
+            assert "chunk_index" not in md
+            # Sanity: the ones we *do* care about are still there.
+            assert md["source_url"] == payload["url"]
+            assert md["region"] == ["Wien"]
+
     def test_deletes_by_source_url_before_upsert(self):
         """Idempotency path: we delete by the indexed metadata.source_url
         filter before upserting (since metadata.source_id isn't indexed)."""

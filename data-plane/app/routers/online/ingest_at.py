@@ -140,8 +140,8 @@ def _point_id(source_id: str, chunk_index: int, collection: str) -> int:
 
 
 _KNOWN_METADATA_KEYS = {
-    "chunk_id", "source_id", "chunk_index", "source_url", "source_path",
-    "content_type", "language", "title", "source_type", "mime_type",
+    "source_url",
+    "content_type", "language", "title", "source_type",
     "uploaded_by", "assistant_id", "municipality_id", "department",
     "assistant_type", "region",
 }
@@ -161,20 +161,21 @@ def _build_point(
     metadata: dict,
     entities: dict | None,
 ) -> dict:
-    """Build a single Qdrant point in the AT collection's unnamed-vector schema."""
-    chunk_id = f"{source_id}_chunk_{chunk_index:04d}"
+    """Build a single Qdrant point in the AT collection's unnamed-vector schema.
 
+    ``chunk_id``, ``source_id``, and ``chunk_index`` are intentionally not
+    written to the payload: idempotency uses the indexed ``metadata.source_url``
+    filter, and re-ingest overwrites rely on the deterministic integer point
+    ID derived from ``(collection, source_id, chunk_index)`` — there's no
+    reader that consumes those fields off the payload.
+    """
     point_metadata: dict = {
-        "chunk_id": chunk_id,
-        "source_id": source_id,
-        "chunk_index": chunk_index,
         "source_url": source_url,
         "region": region,
         "content_type": content_type,
         "language": language,
         "title": metadata.get("title", ""),
         "source_type": metadata.get("source_type", ""),
-        "mime_type": metadata.get("mime_type", ""),
         "uploaded_by": metadata.get("uploaded_by", ""),
     }
 
