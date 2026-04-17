@@ -1,5 +1,6 @@
 """Qdrant vector database client — manages collections, upserts, searches, and deletions."""
 
+import asyncio
 import time
 from urllib.parse import urlparse, urlunparse
 
@@ -49,6 +50,8 @@ class QdrantService:
         self._client: httpx.AsyncClient | None = None
         self._base_url = _compose_base_url(url or ext.qdrant_url, port)
         self._api_key = api_key if api_key is not None else ext.qdrant_api_key
+        self._validated_collections: set[tuple[str, str]] = set()
+        self._collection_lock = asyncio.Lock()
 
     async def startup(self) -> None:
         headers = {}
@@ -64,6 +67,7 @@ class QdrantService:
     async def shutdown(self) -> None:
         if self._client:
             await self._client.aclose()
+        self._validated_collections.clear()
         log.info("qdrant_service_stopped")
 
     async def check_health(self) -> bool:
@@ -166,56 +170,77 @@ class QdrantService:
                 },
             }
             expected_vector_names = {"dense"}
+        schema_signature = self._schema_signature(vectors_config, sparse)
 
-        # Check if collection exists and whether its schema is compatible
-        try:
-            resp = await self._client.get(f"/collections/{name}")
-            if resp.status_code == 200:
-                existing_vectors = resp.json().get("result", {}).get("config", {}).get("params", {}).get("vectors", {})
-                existing_vector_names = set(existing_vectors.keys())
+        # Fast path: this worker has already validated the collection schema.
+        if (name, schema_signature) in self._validated_collections:
+            log.debug("qdrant_collection_validation_cache_hit", collection=name)
+            return False
 
-                if expected_vector_names.issubset(existing_vector_names):
-                    log.info("qdrant_collection_exists", collection=name)
-                    return False
+        async with self._collection_lock:
+            # Another request may have validated the same collection while we waited.
+            if (name, schema_signature) in self._validated_collections:
+                log.debug("qdrant_collection_validation_cache_hit_after_lock", collection=name)
+                return False
 
-                # Schema mismatch — cannot add new vector fields to existing collection
-                raise QdrantError(
-                    f"Collection '{name}' has incompatible vector schema: "
-                    f"existing={sorted(existing_vector_names)}, "
-                    f"expected={sorted(expected_vector_names)}. "
-                    f"Delete the collection manually and re-ingest to migrate to multi-vector."
+            # Check if collection exists and whether its schema is compatible
+            try:
+                resp = await self._client.get(f"/collections/{name}")
+                if resp.status_code == 200:
+                    existing_vectors = resp.json().get("result", {}).get("config", {}).get("params", {}).get("vectors", {})
+                    existing_vector_names = set(existing_vectors.keys())
+
+                    if expected_vector_names.issubset(existing_vector_names):
+                        self._validated_collections.add((name, schema_signature))
+                        log.info("qdrant_collection_exists", collection=name)
+                        return False
+
+                    # Schema mismatch — cannot add new vector fields to existing collection
+                    raise QdrantError(
+                        f"Collection '{name}' has incompatible vector schema: "
+                        f"existing={sorted(existing_vector_names)}, "
+                        f"expected={sorted(expected_vector_names)}. "
+                        f"Delete the collection manually and re-ingest to migrate to multi-vector."
+                    )
+            except httpx.RequestError as e:
+                raise QdrantError(f"Qdrant connection failed: {e}") from e
+
+            # Build sparse config
+            if sparse:
+                sparse_config = {
+                    "sparse": {
+                        "modifier": "idf",
+                        "index": {"on_disk": False},
+                    },
+                }
+            else:
+                sparse_config = {}
+
+            body: dict = {"vectors": vectors_config}
+            if sparse_config:
+                body["sparse_vectors"] = sparse_config
+
+            try:
+                resp = await self._client.put(
+                    f"/collections/{name}",
+                    json=body,
                 )
-        except httpx.RequestError as e:
-            raise QdrantError(f"Qdrant connection failed: {e}") from e
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise QdrantError(f"Failed to create collection: {e.response.text}") from e
+            except httpx.RequestError as e:
+                raise QdrantError(f"Qdrant connection failed: {e}") from e
 
-        # Build sparse config
-        if sparse:
-            sparse_config = {
-                "sparse": {
-                    "modifier": "idf",
-                    "index": {"on_disk": False},
-                },
-            }
-        else:
-            sparse_config = {}
+            self._validated_collections.add((name, schema_signature))
+            log.info("qdrant_collection_created", collection=name, vectors=list(vectors_config.keys()), sparse=sparse)
+            return True
 
-        body: dict = {"vectors": vectors_config}
-        if sparse_config:
-            body["sparse_vectors"] = sparse_config
-
-        try:
-            resp = await self._client.put(
-                f"/collections/{name}",
-                json=body,
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise QdrantError(f"Failed to create collection: {e.response.text}") from e
-        except httpx.RequestError as e:
-            raise QdrantError(f"Qdrant connection failed: {e}") from e
-
-        log.info("qdrant_collection_created", collection=name, vectors=list(vectors_config.keys()), sparse=sparse)
-        return True
+    @staticmethod
+    def _schema_signature(vectors_config: dict, sparse: bool) -> str:
+        vector_parts = []
+        for name, cfg in sorted(vectors_config.items()):
+            vector_parts.append(f"{name}:{cfg['size']}:{cfg['distance']}")
+        return f"vectors={'|'.join(vector_parts)};sparse={int(sparse)}"
 
     async def collection_stats(self, name: str) -> dict:
         """Get collection info and stats."""
