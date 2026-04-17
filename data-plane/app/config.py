@@ -72,9 +72,17 @@ class ExternalSettings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = ""  # Default collection name (tenant-based)
 
-    # Qdrant — AT-specific instance used by the online ingest fan-out when
-    # country == "AT". Falls back to qdrant_url / qdrant_api_key when empty.
+    # Qdrant — AT-specific instance used by POST /api/v1/online/ingest/at.
+    # Host, port, and api-key are split across three env vars (matches the
+    # upstream qdrant-client pattern — QDRANT_URL / QDRANT_PORT / QDRANT_API_KEY).
+    # QDRANT_URL_AT should contain just the scheme + host, e.g.
+    #   https://at-qdrant.example.com   (or http://localhost for dev).
+    # QDRANT_PORT_AT defaults to 443 (standard HTTPS); set explicitly when
+    # running against a non-standard port (e.g. 6333 for a local dev instance).
+    # When QDRANT_URL_AT is empty, the service reuses the default QDRANT_URL /
+    # QDRANT_API_KEY (port embedded in QDRANT_URL as before).
     qdrant_url_at: str = ""
+    qdrant_port_at: int = 443
     qdrant_api_key_at: str = ""
 
     # Redis

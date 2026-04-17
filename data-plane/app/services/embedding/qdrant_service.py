@@ -1,6 +1,7 @@
 """Qdrant vector database client — manages collections, upserts, searches, and deletions."""
 
 import time
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -14,12 +15,39 @@ class QdrantError(Exception):
     pass
 
 
+def _compose_base_url(url: str, port: int | None) -> str:
+    """Combine a scheme+host URL with an optional port.
+
+    - Mirrors the upstream qdrant-client pattern where URL and port are
+      supplied separately.
+    - If ``url`` already carries an explicit port (e.g. ``http://qdrant:6333``)
+      it's preserved verbatim — the ``port`` arg is ignored in that case.
+    - A ``port`` of ``None`` / ``0`` means "leave the URL as-is" so the
+      default ``http://qdrant:6333`` config keeps working.
+    """
+    trimmed = url.rstrip("/")
+    if not port:
+        return trimmed
+    parsed = urlparse(trimmed)
+    if parsed.port is not None:
+        return trimmed  # explicit port in URL wins over the kwarg
+    if not parsed.hostname:
+        return trimmed  # malformed; don't try to compose
+    netloc = f"{parsed.hostname}:{port}"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
 class QdrantService:
     """HTTP client for the Qdrant vector database."""
 
-    def __init__(self, url: str | None = None, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        url: str | None = None,
+        api_key: str | None = None,
+        port: int | None = None,
+    ) -> None:
         self._client: httpx.AsyncClient | None = None
-        self._base_url = (url or ext.qdrant_url).rstrip("/")
+        self._base_url = _compose_base_url(url or ext.qdrant_url, port)
         self._api_key = api_key if api_key is not None else ext.qdrant_api_key
 
     async def startup(self) -> None:

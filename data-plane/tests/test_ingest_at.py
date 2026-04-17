@@ -86,6 +86,37 @@ class TestSelectCollections:
         assert _select_collections([], []) == ALL_AT_COLLECTIONS
 
 
+class TestComposeBaseUrl:
+    """Ensures QDRANT_URL_AT + QDRANT_PORT_AT compose correctly, matching the
+    upstream qdrant-client pattern (URL and port supplied separately)."""
+
+    def test_appends_port_to_hostname_url(self):
+        from app.services.embedding.qdrant_service import _compose_base_url
+        assert _compose_base_url("https://at-qdrant.example.com", 443) == "https://at-qdrant.example.com:443"
+
+    def test_http_localhost_with_port(self):
+        from app.services.embedding.qdrant_service import _compose_base_url
+        assert _compose_base_url("http://localhost", 6333) == "http://localhost:6333"
+
+    def test_explicit_port_in_url_wins(self):
+        from app.services.embedding.qdrant_service import _compose_base_url
+        # URL already carries :6333 → ignore the kwarg to avoid double-port.
+        assert _compose_base_url("http://qdrant:6333", 443) == "http://qdrant:6333"
+
+    def test_none_port_leaves_url_unchanged(self):
+        from app.services.embedding.qdrant_service import _compose_base_url
+        assert _compose_base_url("http://qdrant:6333", None) == "http://qdrant:6333"
+        assert _compose_base_url("https://at-qdrant.example.com", None) == "https://at-qdrant.example.com"
+
+    def test_zero_port_treated_as_no_port(self):
+        from app.services.embedding.qdrant_service import _compose_base_url
+        assert _compose_base_url("http://qdrant:6333", 0) == "http://qdrant:6333"
+
+    def test_strips_trailing_slash(self):
+        from app.services.embedding.qdrant_service import _compose_base_url
+        assert _compose_base_url("https://at-qdrant.example.com/", 443) == "https://at-qdrant.example.com:443"
+
+
 class TestPointId:
     def test_deterministic(self):
         assert _point_id("src1", 0, "Wien") == _point_id("src1", 0, "Wien")

@@ -96,13 +96,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await qdrant.startup()
     app.state.qdrant = qdrant
 
-    # AT-specific Qdrant instance (used by the online ingest fan-out when
-    # country == "AT"). Falls back to the default Qdrant URL/key when the
-    # AT-specific env vars are not set.
-    qdrant_at = QdrantService(
-        url=ext.qdrant_url_at or ext.qdrant_url,
-        api_key=ext.qdrant_api_key_at or ext.qdrant_api_key,
-    )
+    # AT-specific Qdrant instance (used by POST /api/v1/online/ingest/at).
+    # URL / port / api-key come from separate env vars — matches the upstream
+    # qdrant-client pattern. Port defaults to 443 (standard HTTPS). When the
+    # AT URL env var is unset, we fall back to the default qdrant_url and
+    # skip the port kwarg so the URL's embedded port wins.
+    if ext.qdrant_url_at:
+        qdrant_at = QdrantService(
+            url=ext.qdrant_url_at,
+            port=ext.qdrant_port_at,
+            api_key=ext.qdrant_api_key_at or ext.qdrant_api_key,
+        )
+    else:
+        qdrant_at = QdrantService(
+            url=ext.qdrant_url,
+            api_key=ext.qdrant_api_key,
+        )
     await qdrant_at.startup()
     app.state.qdrant_at = qdrant_at
 

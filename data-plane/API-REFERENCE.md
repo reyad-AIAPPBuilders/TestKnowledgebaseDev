@@ -26,8 +26,8 @@ Update the knowledgebase using online URLs and cloud services.
 - Scrape web pages via Crawl4AI (default) or the Jina Reader API — selectable per request
 - Parse documents from any public URL — uses LlamaParse (cloud)
 - All online endpoints live under `/api/v1/online/`
-- **AT funding assistant** has a dedicated endpoint — `POST /api/v1/online/ingest/at` — that writes to a separate Qdrant instance (`DP_QDRANT_URL_AT`) with per-province collections. See the endpoint docs below for transparenzportal binding and province fan-out semantics.
-- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`; optional `JINA_API_KEY` to enable the Jina backend, `DP_QDRANT_URL_AT` / `DP_QDRANT_API_KEY_AT` for the AT pipeline
+- **AT funding assistant** has a dedicated endpoint — `POST /api/v1/online/ingest/at` — that writes to a separate Qdrant instance (`DP_QDRANT_URL_AT` + `DP_QDRANT_PORT_AT` + `DP_QDRANT_API_KEY_AT`) with per-province collections. See the endpoint docs below for transparenzportal binding and province fan-out semantics.
+- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`; optional `JINA_API_KEY` to enable the Jina backend; `DP_QDRANT_URL_AT` / `DP_QDRANT_PORT_AT` (default 443) / `DP_QDRANT_API_KEY_AT` for the AT pipeline
 
 ### 2. Local Mode — Fully Offline Document Processing
 Process documents entirely locally without any third-party APIs.
@@ -1101,7 +1101,7 @@ The country (`AT`) and assistant type (`funding`) are **implicit** — don't sen
 
 | Aspect | `/online/ingest` | `/online/ingest/at` |
 |---|---|---|
-| Qdrant target | `DP_QDRANT_URL` | `DP_QDRANT_URL_AT` (falls back to `DP_QDRANT_URL` when unset) |
+| Qdrant target | `DP_QDRANT_URL` (host:port combined) | `DP_QDRANT_URL_AT` + `DP_QDRANT_PORT_AT` + `DP_QDRANT_API_KEY_AT` (URL and port split, matching the upstream qdrant-client pattern; port defaults to **443** for HTTPS). Falls back to `DP_QDRANT_URL` / `DP_QDRANT_API_KEY` when `DP_QDRANT_URL_AT` is unset. |
 | Collection schema | Named multi-vector (`dense_openai`, `dense_bge_gemma2`, optional `sparse`) | Single unnamed 1536-dim cosine vector (legacy schema) |
 | Collection(s) per request | One (from `collection_name`) | 1–9 (fan-out over Austrian provinces) |
 | Point ID | `uuid5` string | Deterministic 64-bit integer |
