@@ -298,9 +298,10 @@ class TestEndpoint:
             assert len(p["vector"]) == 1536
             assert all(isinstance(v, float) for v in p["vector"])
 
-    def test_metadata_includes_chunk_id_source_id_chunk_index(self):
-        """Match the normal ingest payload shape: every point carries
-        chunk_id, source_id, and chunk_index in its metadata."""
+    def test_metadata_includes_source_id_and_omits_chunk_fields(self):
+        """source_id is written to every point's metadata; chunk_id and
+        chunk_index are intentionally not — they're only used to derive
+        the deterministic integer point ID."""
         handles = _install()
         payload = {**BASE_PAYLOAD, "state_or_province": ["Wien"]}
 
@@ -313,9 +314,8 @@ class TestEndpoint:
         for p in points:
             md = p["payload"]["metadata"]
             assert md["source_id"] == payload["source_id"]
-            idx = md["chunk_index"]
-            assert isinstance(idx, int) and idx >= 0
-            assert md["chunk_id"] == f"{payload['source_id']}_chunk_{idx:04d}"
+            assert "chunk_id" not in md
+            assert "chunk_index" not in md
             assert md["source_url"] == payload["url"]
             assert md["region"] == ["Wien"]
 

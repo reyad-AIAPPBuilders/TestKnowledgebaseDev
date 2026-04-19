@@ -140,7 +140,7 @@ def _point_id(source_id: str, chunk_index: int, collection: str) -> int:
 
 
 _KNOWN_METADATA_KEYS = {
-    "chunk_id", "source_id", "chunk_index", "source_url",
+    "source_id", "source_url",
     "content_type", "language", "title", "source_type",
     "uploaded_by", "assistant_id", "municipality_id", "department",
     "assistant_type", "region",
@@ -162,12 +162,8 @@ def _build_point(
     entities: dict | None,
 ) -> dict:
     """Build a single Qdrant point in the AT collection's unnamed-vector schema."""
-    chunk_id = f"{source_id}_chunk_{chunk_index:04d}"
-
     point_metadata: dict = {
-        "chunk_id": chunk_id,
         "source_id": source_id,
-        "chunk_index": chunk_index,
         "source_url": source_url,
         "region": region,
         "content_type": content_type,
