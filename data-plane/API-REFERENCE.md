@@ -27,7 +27,7 @@ Update the knowledgebase using online URLs and cloud services.
 - Parse documents from any public URL — uses LlamaParse (cloud)
 - All online endpoints live under `/api/v1/online/`
 - **AT funding assistant** has a dedicated endpoint — `POST /api/v1/online/ingest/at` — that writes to a separate Qdrant instance (`QDRANT_URL_AT` + `QDRANT_PORT_AT` + `QDRANT_API_KEY_AT`) with per-province collections. See the endpoint docs below for province fan-out semantics.
-- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`; optional `JINA_API_KEY` to enable the Jina backend; `QDRANT_URL_AT` / `QDRANT_PORT_AT` (default 443) / `QDRANT_API_KEY_AT` for the AT pipeline
+- Requires: `CRAWL4AI_URL`, `LLAMA_CLOUD_API_KEY`, `OPENAI_API_KEY`; optional `JINA_API_KEY` to enable the Jina backend; `QDRANT_URL_AT` / `QDRANT_PORT_AT` (optional — leave unset when the port is embedded in `QDRANT_URL_AT`) / `QDRANT_API_KEY_AT` for the AT pipeline
 
 ### 2. Local Mode — Fully Offline Document Processing
 Process documents entirely locally without any third-party APIs.
@@ -1101,7 +1101,7 @@ The country (`AT`) and assistant type (`funding`) are **implicit** — don't sen
 
 | Aspect | `/online/ingest` | `/online/ingest/at` |
 |---|---|---|
-| Qdrant target | `QDRANT_URL` (host:port combined) | `QDRANT_URL_AT` + `QDRANT_PORT_AT` + `QDRANT_API_KEY_AT` (URL and port split, matching the upstream qdrant-client pattern; port defaults to **443** for HTTPS). Falls back to `QDRANT_URL` / `QDRANT_API_KEY` when `QDRANT_URL_AT` is unset. |
+| Qdrant target | `QDRANT_URL` (host:port combined) | `QDRANT_URL_AT` + `QDRANT_PORT_AT` + `QDRANT_API_KEY_AT` (URL and port split, matching the upstream qdrant-client pattern; `QDRANT_PORT_AT` has no default — leave it unset when the port is already embedded in `QDRANT_URL_AT`, including the implicit 443 for `https://` URLs). Falls back to `QDRANT_URL` / `QDRANT_API_KEY` when `QDRANT_URL_AT` is unset. |
 | Collection schema | Named multi-vector (`dense_openai`, `dense_bge_gemma2`, optional `sparse`) | Single unnamed 1536-dim cosine vector (legacy schema) |
 | Collection(s) per request | One (from `collection_name`) | 1–9 (fan-out over Austrian provinces) |
 | Point ID | `uuid5` string | Deterministic 64-bit integer |

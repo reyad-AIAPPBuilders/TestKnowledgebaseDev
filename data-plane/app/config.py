@@ -75,14 +75,14 @@ class ExternalSettings(BaseSettings):
     # Qdrant — AT-specific instance used by POST /api/v1/online/ingest/at.
     # Host, port, and api-key are split across three env vars (matches the
     # upstream qdrant-client pattern — QDRANT_URL / QDRANT_PORT / QDRANT_API_KEY).
-    # QDRANT_URL_AT should contain just the scheme + host, e.g.
-    #   https://at-qdrant.example.com   (or http://localhost for dev).
-    # QDRANT_PORT_AT defaults to 443 (standard HTTPS); set explicitly when
-    # running against a non-standard port (e.g. 6333 for a local dev instance).
+    # QDRANT_URL_AT may include the port inline (e.g. https://host:6333) or
+    # carry only the scheme+host with QDRANT_PORT_AT supplying the port.
+    # QDRANT_PORT_AT has no default — leave it unset when the port is already
+    # embedded in the URL (including the implicit 443 for https:// URLs).
     # When QDRANT_URL_AT is empty, the service reuses the default QDRANT_URL /
     # QDRANT_API_KEY (port embedded in QDRANT_URL as before).
     qdrant_url_at: str = ""
-    qdrant_port_at: int = 443
+    qdrant_port_at: int | None = None
     qdrant_api_key_at: str = ""
 
     # Redis
