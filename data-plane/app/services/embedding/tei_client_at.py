@@ -27,12 +27,24 @@ class TEIEmbedClientAT:
         self._base_url = ext.tei_embed_url_at.rstrip("/")
         self._api_key = ext.tei_embed_api_key_at
         self._model = ext.tei_embed_model_at
+        self._cf_client_id = ext.tei_cf_access_client_id_at
+        self._cf_client_secret = ext.tei_cf_access_client_secret_at
 
     async def startup(self) -> None:
         if not self._api_key:
             log.warning("tei_embed_client_at_no_key")
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(60))
-        log.info("tei_embed_client_at_started", url=self._base_url, model=self._model or "<server-default>")
+        # follow_redirects=True handles reverse proxies that 302/307 POSTs to
+        # a canonical URL (trailing-slash normalization, http→https, etc.).
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60),
+            follow_redirects=True,
+        )
+        log.info(
+            "tei_embed_client_at_started",
+            url=self._base_url,
+            model=self._model or "<server-default>",
+            cf_access=bool(self._cf_client_id and self._cf_client_secret),
+        )
 
     async def shutdown(self) -> None:
         if self._client:
@@ -55,21 +67,33 @@ class TEIEmbedClientAT:
         if self._model:
             payload["model"] = self._model
 
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        if self._cf_client_id and self._cf_client_secret:
+            headers["CF-Access-Client-Id"] = self._cf_client_id
+            headers["CF-Access-Client-Secret"] = self._cf_client_secret
+
         start = time.monotonic()
         try:
             resp = await self._client.post(
                 f"{self._base_url}/v1/embeddings",
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json=payload,
             )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise EmbeddingError(f"TEI AT HTTP {e.response.status_code}: {e.response.text}") from e
         except httpx.RequestError as e:
             raise EmbeddingError(f"TEI AT connection error: {e}") from e
+
+        if resp.is_redirect:
+            # Shouldn't happen with follow_redirects=True, but surface the
+            # Location header if it does so the misconfiguration is obvious.
+            location = resp.headers.get("location", "<none>")
+            raise EmbeddingError(
+                f"TEI AT HTTP {resp.status_code} redirect to {location} (not followed)"
+            )
+        if not resp.is_success:
+            raise EmbeddingError(f"TEI AT HTTP {resp.status_code}: {resp.text}")
 
         duration = int((time.monotonic() - start) * 1000)
         data = resp.json()

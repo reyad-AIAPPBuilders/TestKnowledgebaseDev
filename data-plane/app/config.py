@@ -114,9 +114,15 @@ class ExternalSettings(BaseSettings):
     # OpenAI-compatible server exposing POST {TEI_EMBED_URL_AT}/v1/embeddings.
     # API key is required. TEI_EMBED_MODEL_AT is optional — many TEI servers
     # ignore the model field since each process serves a single model.
+    #
+    # When the endpoint is behind Cloudflare Access, also supply a service-token
+    # pair — the client sends them as CF-Access-Client-Id / -Client-Secret
+    # headers so Cloudflare lets the request through without the login redirect.
     tei_embed_url_at: str = "https://embed.ki2.at"
     tei_embed_api_key_at: str = ""
     tei_embed_model_at: str = ""
+    tei_cf_access_client_id_at: str = ""
+    tei_cf_access_client_secret_at: str = ""
 
     # LDAP
     ldap_url: str = ""
