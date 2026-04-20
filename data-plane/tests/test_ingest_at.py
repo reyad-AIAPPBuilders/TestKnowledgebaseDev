@@ -42,6 +42,23 @@ class TestNormalizeProvinces:
         assert _normalize_provinces([]) == []
         assert _normalize_provinces(None) == []
 
+    def test_translates_german_to_english(self):
+        assert _normalize_provinces(["Niederösterreich"]) == ["lower austria"]
+        assert _normalize_provinces(["Wien", "Kärnten", "Tirol"]) == ["vienna", "carinthia", "tyrol"]
+        assert _normalize_provinces(["Steiermark", "Oberösterreich"]) == ["styria", "upper austria"]
+
+    def test_dedupes_across_languages(self):
+        assert _normalize_provinces(["Niederösterreich", "lower austria"]) == ["lower austria"]
+        assert _normalize_provinces(["wien", "Vienna", "WIEN"]) == ["vienna"]
+
+    def test_drops_unknown_values(self):
+        assert _normalize_provinces(["atlantis", "transnistria", "vienna"]) == ["vienna"]
+        assert _normalize_provinces(["bavaria"]) == []  # German state, not Austrian
+
+    def test_german_umlauts_case_insensitive(self):
+        assert _normalize_provinces(["KÄRNTEN"]) == ["carinthia"]
+        assert _normalize_provinces(["NiederÖsterreich"]) == ["lower austria"]
+
 
 class TestComposeBaseUrl:
     """Ensures QDRANT_URL_AT + QDRANT_PORT_AT compose correctly, matching the
@@ -186,6 +203,19 @@ class TestEndpoint:
         for p in _all_points(handles["qdrant"]):
             assert p["payload"]["metadata"]["state_or_province"] == ["lower austria", "vienna"]
 
+    def test_german_override_stored_as_english_canonical(self):
+        """Override sent in German must land as the English-lowercase form
+        so it matches extractor output for cross-ingest search filtering."""
+        handles = _install(extract_return={"state_or_province": ["salzburg"]})
+        payload = {**BASE_PAYLOAD, "state_or_province": ["Niederösterreich", "Wien"]}
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 200, r.text
+        for p in _all_points(handles["qdrant"]):
+            assert p["payload"]["metadata"]["state_or_province"] == ["lower austria", "vienna"]
+
     def test_extractor_value_used_when_no_override(self):
         handles = _install(extract_return={"state_or_province": ["tyrol", "salzburg"]})
 
@@ -234,6 +264,33 @@ class TestEndpoint:
         assert r.status_code == 200
         for p in _all_points(handles["qdrant"]):
             assert "region" not in p["payload"]["metadata"]
+
+    def test_program_name_falls_back_to_title_when_extractor_missing(self):
+        """When the extractor doesn't return a program_name, the stored
+        metadata.program_name defaults to the title."""
+        handles = _install(extract_return={"program_name": "", "state_or_province": []})
+        payload = {**BASE_PAYLOAD}  # metadata.title = "Sportförderung Salzburg"
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 200, r.text
+        for p in _all_points(handles["qdrant"]):
+            assert p["payload"]["metadata"]["program_name"] == "Sportförderung Salzburg"
+
+    def test_program_name_preserved_when_extractor_returns_one(self):
+        """A distinct extractor program_name wins over the title fallback."""
+        handles = _install(extract_return={
+            "program_name": "Sportförderung 2025",
+            "state_or_province": [],
+        })
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200, r.text
+        for p in _all_points(handles["qdrant"]):
+            assert p["payload"]["metadata"]["program_name"] == "Sportförderung 2025"
 
     def test_extracted_contact_fields_land_in_metadata(self):
         """program_name / processing_office / contract_email / contract_phone

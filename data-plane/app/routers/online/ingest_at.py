@@ -85,17 +85,48 @@ _KNOWN_METADATA_KEYS = {
 }
 
 
+# German / English → canonical English-lowercase form. The canonical forms
+# match funding_extractor.PROVINCES_BY_COUNTRY["AT"] exactly so overrides and
+# extractor output produce the same stored metadata.state_or_province value
+# regardless of caller input casing or language.
+_AT_PROVINCE_ALIASES: dict[str, str] = {
+    # English (canonical)
+    "burgenland": "burgenland",
+    "carinthia": "carinthia",
+    "lower austria": "lower austria",
+    "upper austria": "upper austria",
+    "salzburg": "salzburg",
+    "styria": "styria",
+    "tyrol": "tyrol",
+    "vorarlberg": "vorarlberg",
+    "vienna": "vienna",
+    # German
+    "kärnten": "carinthia",
+    "niederösterreich": "lower austria",
+    "oberösterreich": "upper austria",
+    "steiermark": "styria",
+    "tirol": "tyrol",
+    "wien": "vienna",
+}
+
+
 def _normalize_provinces(names: list[str] | None) -> list[str]:
-    """Lowercase + trim + dedupe while preserving order. Empty list if None."""
+    """Canonicalize AT province names to the same English-lowercase form the
+    funding extractor emits.
+
+    Accepts German or English input, any casing. Unknown values are dropped so
+    the stored ``metadata.state_or_province`` is always a subset of the nine
+    official AT provinces — search-time filters stay consistent across ingests.
+    """
     if not names:
         return []
     seen: set[str] = set()
     out: list[str] = []
     for raw in names:
-        s = (raw or "").strip().lower()
-        if s and s not in seen:
-            seen.add(s)
-            out.append(s)
+        canonical = _AT_PROVINCE_ALIASES.get((raw or "").strip().lower())
+        if canonical and canonical not in seen:
+            seen.add(canonical)
+            out.append(canonical)
     return out
 
 
@@ -299,6 +330,11 @@ async def ingest_online_at(
     override_states = _normalize_provinces(body.state_or_province)
     extracted_states = _normalize_provinces(extracted.get("state_or_province") if extracted else None)
     merged_metadata["state_or_province"] = override_states or extracted_states
+
+    # Fall back program_name to title when the extractor didn't find a
+    # distinct program name — search-time ranking relies on this field.
+    if not merged_metadata.get("program_name"):
+        merged_metadata["program_name"] = merged_metadata.get("title", "")
 
     entities = body.entities.model_dump() if body.entities else None
     language = body.language or "de"
