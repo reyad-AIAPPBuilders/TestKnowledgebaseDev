@@ -2,9 +2,10 @@
 
 The AT endpoint serves the Austrian funding assistant on a dedicated Qdrant
 instance. The caller supplies ``collection_name`` directly — the country and
-assistant type are still implicit (AT / funding). The target collection must
-be pre-created with a single unnamed 1024-dim cosine vector (no sparse, no
-fallback) to match the TEI embedding model behind ``TEI_EMBED_URL_AT``.
+assistant type are still implicit (AT / funding). The target collection is
+auto-created with a single unnamed 1024-dim cosine vector (no sparse, no
+fallback) on first use to match the TEI embedding model behind
+``TEI_EMBED_URL_AT``.
 """
 
 from pydantic import BaseModel, Field
@@ -24,7 +25,7 @@ class OnlineIngestATRequest(BaseModel):
     """
 
     source_id: str = Field(..., description="Unique document ID. Prior points with the same source_id are deleted before the fresh upsert.")
-    collection_name: str = Field(..., min_length=1, description="Target collection on the AT Qdrant instance. Must be pre-created with a single unnamed 1024-dim cosine vector.")
+    collection_name: str = Field(..., min_length=1, description="Target collection on the AT Qdrant instance. Auto-created with the AT legacy schema on first use; reused thereafter.")
     url: str = Field(..., description="Source URL (stored as metadata.source_url).")
     content: str = Field(..., min_length=1, description="Parsed/scraped text content from /online/scrape or /online/document-parse.")
     content_type: list[str] = Field(..., min_length=1, description="Content categories, e.g. ['funding','sport']. Obtained upstream from /online/scrape or /online/document-parse.")

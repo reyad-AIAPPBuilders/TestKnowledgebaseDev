@@ -17,8 +17,11 @@ Behaviour
 - Country is implicit — every request is treated as AT.
 - Assistant type is implicit — the funding extractor always runs, so callers
   do not supply ``assistant_type``.
-- Target collection: ``body.collection_name`` (required). No validation — the
-  upsert fails with ``QDRANT_COLLECTION_NOT_FOUND`` if it doesn't exist.
+- Target collection: ``body.collection_name`` (required). Auto-created with
+  the AT legacy schema (single unnamed 1024-dim cosine vector, keyword
+  indexes on ``metadata.source_id`` and ``metadata.source_url``) on first
+  use. Existing collections are reused; a dim mismatch fails fast with
+  ``QDRANT_COLLECTION_NOT_FOUND``.
 - ``state_or_province``: override wins over the extractor; both are stored on
   every point as ``metadata.state_or_province`` (english lowercase) for
   search-time filtering. No collection routing.
@@ -175,7 +178,9 @@ async def _delete_existing_by_source_id(qdrant, collection: str, source_id: str)
         "(funding) are implicit — do not pass them in the body.\n\n"
         "**Flow:** chunk → optional contextual enrichment → TEI embed "
         "(1024-dim, cosine) → upsert to `body.collection_name` on the AT "
-        "Qdrant instance.\n\n"
+        "Qdrant instance. The collection is auto-created with the AT legacy "
+        "schema (single unnamed 1024-dim cosine vector + keyword indexes on "
+        "`metadata.source_id` / `metadata.source_url`) on first use.\n\n"
         "**Metadata:** the funding extractor runs unconditionally and its "
         "output (title, program_name, processing_office, contract_email, "
         "contract_phone, state_or_province, funding_type, status, …) is "
@@ -300,6 +305,22 @@ async def ingest_online_at(
 
     # ── 5. Build + upsert points (single collection) ──
     collection = body.collection_name
+    try:
+        await qdrant.ensure_at_collection(collection)
+    except QdrantError as e:
+        msg = str(e).lower()
+        if "connection" in msg:
+            code = ErrorCode.QDRANT_CONNECTION_FAILED
+        else:
+            code = ErrorCode.QDRANT_COLLECTION_NOT_FOUND
+        log.error("ingest_online_at_ensure_collection_failed", collection=collection, error=str(e))
+        return ResponseEnvelope(
+            success=False,
+            error=code,
+            detail=str(e),
+            request_id=request_id,
+        )
+
     await _delete_existing_by_source_id(qdrant, collection, body.source_id)
 
     points = [

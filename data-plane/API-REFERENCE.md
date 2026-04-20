@@ -1175,7 +1175,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest/at" \
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `source_id` | string | Yes | — | Unique document ID. Keys the `metadata.source_url` delete-before-upsert. |
-| `collection_name` | string | Yes | — | Target collection on the AT Qdrant instance. Must be pre-created with a single unnamed 1024-dim cosine vector and `metadata.source_url` indexed. |
+| `collection_name` | string | Yes | — | Target collection on the AT Qdrant instance. **Auto-created** with the AT legacy schema (single unnamed 1024-dim cosine vector + keyword indexes on `metadata.source_id` / `metadata.source_url`) on first use. If the collection already exists with a different vector dim, the ingest fails with `QDRANT_COLLECTION_NOT_FOUND`. |
 | `url` | string | Yes | — | Source URL (stored as `metadata.source_url`). |
 | `content` | string | Yes | — | Parsed/scraped text. Must not be whitespace-only. |
 | `content_type` | string[] | Yes | — | Categories from upstream `/scrape` or `/document-parse`. |

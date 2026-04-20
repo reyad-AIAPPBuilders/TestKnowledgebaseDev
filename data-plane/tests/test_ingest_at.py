@@ -122,6 +122,7 @@ def _install(*, extract_return: dict | None = None, embed_dim: int = 1024):
     app.state.funding_extractor = extractor
 
     qdrant = MagicMock()
+    qdrant.ensure_at_collection = AsyncMock(return_value=False)
     qdrant.delete_by_filter = AsyncMock(return_value=0)
     qdrant.upsert_points = AsyncMock(side_effect=lambda _col, points: len(points))
     app.state.qdrant_at = qdrant
@@ -276,6 +277,38 @@ class TestEndpoint:
             assert "chunk_id" not in md
             assert "chunk_index" not in md
             assert md["source_url"] == BASE_PAYLOAD["url"]
+
+    def test_ensures_collection_before_delete_and_upsert(self):
+        """Auto-create: ensure_at_collection is called with the body's
+        collection_name and runs before delete_by_filter / upsert_points."""
+        handles = _install()
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200, r.text
+        qdrant = handles["qdrant"]
+        qdrant.ensure_at_collection.assert_awaited_once()
+        ensure_call = qdrant.ensure_at_collection.await_args
+        assert ensure_call.args[0] == BASE_PAYLOAD["collection_name"]
+
+    def test_ensure_collection_failure_maps_to_error_code(self):
+        """If the collection can't be created (e.g. dim mismatch), the
+        endpoint returns QDRANT_COLLECTION_NOT_FOUND."""
+        from app.services.embedding.qdrant_service import QdrantError
+
+        handles = _install()
+        handles["qdrant"].ensure_at_collection = AsyncMock(
+            side_effect=QdrantError("AT collection 'foerder_at' has vector size 1536, expected 1024.")
+        )
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["success"] is False
+        assert body["error"] == "QDRANT_COLLECTION_NOT_FOUND"
 
     def test_deletes_by_source_id_before_upsert(self):
         """Idempotency path: delete by metadata.source_id before upserting
