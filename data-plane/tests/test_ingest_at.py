@@ -294,12 +294,14 @@ class TestEndpoint:
 
     def test_extracted_contact_fields_land_in_metadata(self):
         """program_name / processing_office / contract_email / contract_phone
-        from the funding extractor flow through to point metadata."""
+        from the funding extractor flow through to point metadata.
+        contract_email / contract_phone are arrays — a funding doc can list
+        multiple contacts."""
         handles = _install(extract_return={
             "program_name": "Sportförderung 2025",
-            "processing_office": "Abteilung Sport, Land Salzburg",
-            "contract_email": "sport@salzburg.gv.at",
-            "contract_phone": "+43 662 8042 3333",
+            "processing_office": ["Abteilung Sport, Land Salzburg", "Magistrat Salzburg"],
+            "contract_email": ["sport@salzburg.gv.at", "foerderungen@salzburg.gv.at"],
+            "contract_phone": ["+43 662 8042 3333", "+43 662 8042 3334"],
             "state_or_province": ["salzburg"],
         })
 
@@ -312,9 +314,9 @@ class TestEndpoint:
         for p in points:
             md = p["payload"]["metadata"]
             assert md["program_name"] == "Sportförderung 2025"
-            assert md["processing_office"] == "Abteilung Sport, Land Salzburg"
-            assert md["contract_email"] == "sport@salzburg.gv.at"
-            assert md["contract_phone"] == "+43 662 8042 3333"
+            assert md["processing_office"] == ["Abteilung Sport, Land Salzburg", "Magistrat Salzburg"]
+            assert md["contract_email"] == ["sport@salzburg.gv.at", "foerderungen@salzburg.gv.at"]
+            assert md["contract_phone"] == ["+43 662 8042 3333", "+43 662 8042 3334"]
 
     def test_metadata_includes_source_id_and_omits_chunk_fields(self):
         """source_id is written to every point's metadata; chunk_id and

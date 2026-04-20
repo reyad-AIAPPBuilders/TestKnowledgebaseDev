@@ -112,9 +112,9 @@ Respond ONLY with valid JSON matching this exact schema:
 {{
   "title": "<title of the funding program>",
   "program_name": "<official program name, if distinct from the title — otherwise empty string>",
-  "processing_office": "<name of the office/department that processes applications — empty string if unknown>",
-  "contract_email": "<contract/contact email address found in the document — empty string if none>",
-  "contract_phone": "<contract/contact phone number found in the document — empty string if none>",
+  "processing_office": ["<names of the offices/departments that process applications. Multiple allowed. Empty list if unknown>"],
+  "contract_email": ["<contract/contact email addresses found in the document. Multiple allowed. Empty list if none>"],
+  "contract_phone": ["<contract/contact phone numbers found in the document. Multiple allowed. Empty list if none>"],
   "country_code": "<ISO 3166-1 alpha-2 country code, e.g. AT, DE, RO>",
   "state_or_province": ["<official states/provinces in english lowercase — see constraint above. Multiple allowed. Empty list if unknown>"],
   "city": ["<city names in english lowercase. Multiple allowed. Empty list if unknown>"],
@@ -230,9 +230,9 @@ class FundingExtractor:
         result = {
             "title": str(data.get("title", "")),
             "program_name": str(data.get("program_name", "")),
-            "processing_office": str(data.get("processing_office", "")),
-            "contract_email": str(data.get("contract_email", "")),
-            "contract_phone": str(data.get("contract_phone", "")),
+            "processing_office": _as_list(data.get("processing_office", [])),
+            "contract_email": _as_list(data.get("contract_email", [])),
+            "contract_phone": _as_list(data.get("contract_phone", [])),
             "country_code": country_code,
             "state_or_province": states_raw,
             "city": [c.lower().strip() for c in _as_list(data.get("city", [])) if c.strip()],
@@ -264,7 +264,11 @@ class FundingExtractor:
 
 def _as_list(val: object) -> list[str]:
     if isinstance(val, list):
-        return [str(v) for v in val][:20]
+        return [str(v) for v in val if str(v).strip()][:20]
+    # Defensive: wrap a non-empty scalar so we don't lose data when the LLM
+    # returns a bare string for an array-typed field.
+    if isinstance(val, str) and val.strip():
+        return [val.strip()]
     return []
 
 

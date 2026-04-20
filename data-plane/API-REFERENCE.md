@@ -1112,10 +1112,10 @@ The country (`AT`) and assistant type (`funding`) are **implicit** — don't sen
 
 The OpenAI-based funding extractor runs unconditionally on every request and its output is merged into `metadata.*` on every stored point:
 
-- `title`, `program_name`
-- `processing_office`
-- `contract_email`, `contract_phone`
-- `state_or_province` (english lowercase), `city`
+- `title`, `program_name` (falls back to `title` when the extractor doesn't find a distinct program name)
+- `processing_office` (list) — a funding doc may route through more than one office
+- `contract_email` (list), `contract_phone` (list) — a funding doc may list multiple contacts
+- `state_or_province` (list, english lowercase), `city` (list)
 - `target_group`, `funding_type`, `status`, `funding_amount`
 - `thematic_focus`, `eligibility_criteria`, `legal_basis`, `funding_provider`
 - `reference_number`, `start_date`, `end_date`, `scraped_at`, `country_code`
