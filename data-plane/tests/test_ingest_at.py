@@ -1,8 +1,8 @@
 """Tests for ``POST /api/v1/online/ingest/at`` and its pure helpers.
 
 Covers the AT funding-assistant ingest: pure helpers for province
-normalization and ID derivation, plus end-to-end endpoint cases driven
-through the real router + real Chunker with mocked embedder / extractor /
+normalization and point-ID derivation, plus end-to-end endpoint cases driven
+through the real router + real Chunker with mocked TEI embedder / extractor /
 Qdrant so we can inspect the exact upsert payload.
 """
 
@@ -13,12 +13,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers.online.ingest_at import (
-    ALL_AT_COLLECTIONS,
-    PROVINCE_TO_COLLECTION_AT,
     _normalize_provinces,
     _point_id,
-    _resolve_collection,
-    _select_collections,
 )
 from app.services.embedding.bge_m3_client import EmbeddingResult
 from app.services.intelligence.chunker import Chunker
@@ -29,61 +25,22 @@ from app.services.intelligence.chunker import Chunker
 # ─────────────────────────────────────────────────────────────────────
 
 
-class TestResolveCollection:
-    def test_english_lowercase_maps_to_german(self):
-        assert _resolve_collection("lower austria") == "Niederösterreich"
-        assert _resolve_collection("vienna") == "Wien"
-        assert _resolve_collection("carinthia") == "Kärnten"
-
-    def test_german_form_passes_through(self):
-        assert _resolve_collection("Niederösterreich") == "Niederösterreich"
-        assert _resolve_collection("Wien") == "Wien"
-
-    def test_case_insensitive_german(self):
-        assert _resolve_collection("wien") == "Wien"
-        assert _resolve_collection("TIROL") == "Tirol"
-
-    def test_whitespace_is_trimmed(self):
-        assert _resolve_collection("  vienna  ") == "Wien"
-
-    def test_unknown_returns_none(self):
-        assert _resolve_collection("transnistria") is None
-        assert _resolve_collection("") is None
-        assert _resolve_collection("bavaria") is None  # DE province, not AT
-
-    def test_all_nine_provinces_resolve(self):
-        resolved = {_resolve_collection(k) for k in PROVINCE_TO_COLLECTION_AT}
-        assert resolved == set(ALL_AT_COLLECTIONS)
-        assert len(ALL_AT_COLLECTIONS) == 9
-
-
 class TestNormalizeProvinces:
-    def test_mixed_case_and_language_dedupes(self):
-        result = _normalize_provinces(["lower austria", "Niederösterreich", "LOWER AUSTRIA"])
-        assert result == ["Niederösterreich"]
+    def test_dedupes_and_lowercases(self):
+        assert _normalize_provinces(["Lower Austria", "lower austria"]) == ["lower austria"]
 
-    def test_drops_unknown_values(self):
-        result = _normalize_provinces(["lower austria", "transnistria", "vienna"])
-        assert result == sorted(["Niederösterreich", "Wien"])
+    def test_preserves_order(self):
+        assert _normalize_provinces(["vienna", "tyrol", "salzburg"]) == ["vienna", "tyrol", "salzburg"]
+
+    def test_trims_whitespace(self):
+        assert _normalize_provinces(["  vienna  ", "salzburg"]) == ["vienna", "salzburg"]
+
+    def test_drops_empty_entries(self):
+        assert _normalize_provinces(["", "  ", "vienna"]) == ["vienna"]
 
     def test_empty_inputs(self):
         assert _normalize_provinces([]) == []
         assert _normalize_provinces(None) == []
-
-    def test_sorts_output(self):
-        result = _normalize_provinces(["vienna", "burgenland", "tyrol"])
-        assert result == sorted(["Wien", "Burgenland", "Tirol"])
-
-
-class TestSelectCollections:
-    def test_override_wins_over_extractor(self):
-        assert _select_collections(["Tirol"], ["Wien"]) == ["Tirol"]
-
-    def test_extractor_used_when_no_override(self):
-        assert _select_collections([], ["Salzburg", "Tirol"]) == ["Salzburg", "Tirol"]
-
-    def test_all_nine_when_both_empty(self):
-        assert _select_collections([], []) == ALL_AT_COLLECTIONS
 
 
 class TestComposeBaseUrl:
@@ -100,7 +57,6 @@ class TestComposeBaseUrl:
 
     def test_explicit_port_in_url_wins(self):
         from app.services.embedding.qdrant_service import _compose_base_url
-        # URL already carries :6333 → ignore the kwarg to avoid double-port.
         assert _compose_base_url("http://qdrant:6333", 443) == "http://qdrant:6333"
 
     def test_none_port_leaves_url_unchanged(self):
@@ -119,20 +75,16 @@ class TestComposeBaseUrl:
 
 class TestPointId:
     def test_deterministic(self):
-        assert _point_id("src1", 0, "Wien") == _point_id("src1", 0, "Wien")
+        assert _point_id("src1", 0) == _point_id("src1", 0)
 
     def test_changes_with_chunk_index(self):
-        a = _point_id("src1", 0, "Wien")
-        b = _point_id("src1", 1, "Wien")
-        assert a != b
+        assert _point_id("src1", 0) != _point_id("src1", 1)
 
-    def test_changes_with_collection(self):
-        a = _point_id("src1", 0, "Wien")
-        b = _point_id("src1", 0, "Tirol")
-        assert a != b
+    def test_changes_with_source_id(self):
+        assert _point_id("src1", 0) != _point_id("src2", 0)
 
     def test_fits_uint64(self):
-        pid = _point_id("src1", 0, "Wien")
+        pid = _point_id("src1", 0)
         assert 0 <= pid < (1 << 64)
 
 
@@ -141,13 +93,13 @@ class TestPointId:
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _dummy_embed(dim: int = 1536):
+def _dummy_embed(dim: int = 1024):
     async def _embed_batch(chunks):
         return [EmbeddingResult(dense=[0.01 * (i + 1)] * dim) for i, _ in enumerate(chunks)]
     return _embed_batch
 
 
-def _install(*, extract_return: dict | None = None, embed_dim: int = 1536):
+def _install(*, extract_return: dict | None = None, embed_dim: int = 1024):
     """Wire minimal mocks onto app.state for the AT endpoint.
 
     Returns a dict with handles for post-assertion inspection.
@@ -157,14 +109,13 @@ def _install(*, extract_return: dict | None = None, embed_dim: int = 1536):
     chunker = Chunker()
     app.state.chunker = chunker
 
-    # Contextual enricher: passthrough so output chunks == input chunks.
     enricher = MagicMock()
     enricher.enrich_chunks = AsyncMock(side_effect=lambda document, chunks: list(chunks))
     app.state.contextual_enricher = enricher
 
     embedder = MagicMock()
     embedder.embed_batch = AsyncMock(side_effect=_dummy_embed(embed_dim))
-    app.state.openai_embedder = embedder
+    app.state.tei_embedder_at = embedder
 
     extractor = MagicMock()
     extractor.extract = AsyncMock(return_value=extract_return or {})
@@ -180,6 +131,7 @@ def _install(*, extract_return: dict | None = None, embed_dim: int = 1536):
 
 BASE_PAYLOAD = {
     "source_id": "web_foerderungen_001",
+    "collection_name": "foerder_at",
     "url": "https://www.salzburg.gv.at/foerderungen",
     "content": "Sportförderung des Landes Salzburg. Die Förderung unterstützt Vereine.",
     "content_type": ["funding", "sport"],
@@ -193,66 +145,20 @@ BASE_PAYLOAD = {
 }
 
 
-def _collections_upserted(qdrant_mock) -> list[str]:
-    return [call.args[0] for call in qdrant_mock.upsert_points.await_args_list]
+def _upsert_calls(qdrant_mock) -> list[tuple[str, list[dict]]]:
+    return [(call.args[0], call.args[1]) for call in qdrant_mock.upsert_points.await_args_list]
 
 
 def _all_points(qdrant_mock) -> list[dict]:
-    out = []
+    out: list[dict] = []
     for call in qdrant_mock.upsert_points.await_args_list:
         out.extend(call.args[1])
     return out
 
 
 class TestEndpoint:
-    def test_override_in_english_normalizes_to_german(self):
-        handles = _install(extract_return={"state_or_province": ["salzburg"]})
-        payload = {**BASE_PAYLOAD, "state_or_province": ["lower austria", "vienna"]}
-
-        with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
-
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["success"] is True
-        # Override wins over extractor's ["salzburg"]; English→German; sorted.
-        assert sorted(body["data"]["collections_written"]) == ["Niederösterreich", "Wien"]
-        assert sorted(_collections_upserted(handles["qdrant"])) == ["Niederösterreich", "Wien"]
-
-        # Every point carries normalized German state_or_province.
-        for p in _all_points(handles["qdrant"]):
-            assert p["payload"]["metadata"]["state_or_province"] == ["Niederösterreich", "Wien"]
-
-    def test_override_in_german_passes_through(self):
+    def test_single_collection_upsert(self):
         handles = _install()
-        payload = {**BASE_PAYLOAD, "state_or_province": ["Niederösterreich"]}
-
-        with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
-
-        assert r.status_code == 200, r.text
-        assert r.json()["data"]["collections_written"] == ["Niederösterreich"]
-
-    def test_extractor_drives_selection_when_no_override(self):
-        handles = _install(extract_return={"state_or_province": ["tyrol", "salzburg"]})
-        payload = {**BASE_PAYLOAD}  # no state_or_province override
-
-        with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
-
-        assert r.status_code == 200, r.text
-        assert sorted(r.json()["data"]["collections_written"]) == ["Salzburg", "Tirol"]
-
-        # Region per point in a specific-province fan-out is the single collection name.
-        for p in _all_points(handles["qdrant"]):
-            region = p["payload"]["metadata"]["region"]
-            assert isinstance(region, list) and len(region) == 1
-            assert region[0] in {"Salzburg", "Tirol"}
-
-    def test_nationwide_fanout_stores_alle_sentinel(self):
-        """Extractor returns empty list and no override → all 9 collections,
-        every point's metadata.region == ['alle']."""
-        handles = _install(extract_return={"state_or_province": []})
 
         with TestClient(app) as c:
             r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
@@ -260,33 +166,52 @@ class TestEndpoint:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["success"] is True
-        assert set(body["data"]["collections_written"]) == set(ALL_AT_COLLECTIONS)
+        assert body["data"]["collection_name"] == "foerder_at"
+        assert body["data"]["vectors_stored"] == body["data"]["chunks_created"]
 
-        points = _all_points(handles["qdrant"])
-        assert points, "Expected points upserted across all 9 collections"
-        for p in points:
-            assert p["payload"]["metadata"]["region"] == ["alle"]
+        calls = _upsert_calls(handles["qdrant"])
+        assert len(calls) == 1
+        assert calls[0][0] == "foerder_at"
 
-    def test_bogus_override_falls_back_to_extractor(self):
-        """Override entries that don't resolve to any AT province are dropped;
-        the extractor's list then drives selection."""
-        handles = _install(extract_return={"state_or_province": ["vienna"]})
-        payload = {**BASE_PAYLOAD, "state_or_province": ["transnistria", "atlantis"]}
+    def test_override_state_or_province_stored_lowercase(self):
+        handles = _install(extract_return={"state_or_province": ["salzburg"]})
+        payload = {**BASE_PAYLOAD, "state_or_province": ["Lower Austria", "VIENNA"]}
 
         with TestClient(app) as c:
             r = c.post("/api/v1/online/ingest/at", json=payload)
 
         assert r.status_code == 200, r.text
-        assert r.json()["data"]["collections_written"] == ["Wien"]
+        # Override wins over extractor; normalized to lowercase, dedupe/order preserved.
+        for p in _all_points(handles["qdrant"]):
+            assert p["payload"]["metadata"]["state_or_province"] == ["lower austria", "vienna"]
 
-    def test_point_shape_matches_existing_schema(self):
-        """Points must carry an integer ID and a flat 1536-float vector (not a
-        named dict), matching the existing AT collection schema."""
-        handles = _install()
-        payload = {**BASE_PAYLOAD, "state_or_province": ["Tirol"]}
+    def test_extractor_value_used_when_no_override(self):
+        handles = _install(extract_return={"state_or_province": ["tyrol", "salzburg"]})
 
         with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200, r.text
+        for p in _all_points(handles["qdrant"]):
+            assert p["payload"]["metadata"]["state_or_province"] == ["tyrol", "salzburg"]
+
+    def test_state_or_province_empty_when_both_missing(self):
+        handles = _install(extract_return={"state_or_province": []})
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200
+        for p in _all_points(handles["qdrant"]):
+            assert p["payload"]["metadata"]["state_or_province"] == []
+
+    def test_point_shape_matches_at_schema(self):
+        """Points must carry an integer ID and a flat 1024-float vector (not a
+        named dict), matching the AT collection schema."""
+        handles = _install()
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
 
         assert r.status_code == 200, r.text
         points = _all_points(handles["qdrant"])
@@ -295,47 +220,97 @@ class TestEndpoint:
             assert isinstance(p["id"], int)
             assert 0 <= p["id"] < (1 << 64)
             assert isinstance(p["vector"], list)
-            assert len(p["vector"]) == 1536
+            assert len(p["vector"]) == 1024
             assert all(isinstance(v, float) for v in p["vector"])
+
+    def test_no_region_field_on_points(self):
+        """region metadata was removed — must not appear on any stored point."""
+        handles = _install(extract_return={"state_or_province": ["vienna"]})
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200
+        for p in _all_points(handles["qdrant"]):
+            assert "region" not in p["payload"]["metadata"]
+
+    def test_extracted_contact_fields_land_in_metadata(self):
+        """program_name / processing_office / contract_email / contract_phone
+        from the funding extractor flow through to point metadata."""
+        handles = _install(extract_return={
+            "program_name": "Sportförderung 2025",
+            "processing_office": "Abteilung Sport, Land Salzburg",
+            "contract_email": "sport@salzburg.gv.at",
+            "contract_phone": "+43 662 8042 3333",
+            "state_or_province": ["salzburg"],
+        })
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200, r.text
+        points = _all_points(handles["qdrant"])
+        assert points
+        for p in points:
+            md = p["payload"]["metadata"]
+            assert md["program_name"] == "Sportförderung 2025"
+            assert md["processing_office"] == "Abteilung Sport, Land Salzburg"
+            assert md["contract_email"] == "sport@salzburg.gv.at"
+            assert md["contract_phone"] == "+43 662 8042 3333"
 
     def test_metadata_includes_source_id_and_omits_chunk_fields(self):
         """source_id is written to every point's metadata; chunk_id and
         chunk_index are intentionally not — they're only used to derive
         the deterministic integer point ID."""
         handles = _install()
-        payload = {**BASE_PAYLOAD, "state_or_province": ["Wien"]}
 
         with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
 
         assert r.status_code == 200
         points = _all_points(handles["qdrant"])
         assert len(points) > 0
         for p in points:
             md = p["payload"]["metadata"]
-            assert md["source_id"] == payload["source_id"]
+            assert md["source_id"] == BASE_PAYLOAD["source_id"]
             assert "chunk_id" not in md
             assert "chunk_index" not in md
-            assert md["source_url"] == payload["url"]
-            assert md["region"] == ["Wien"]
+            assert md["source_url"] == BASE_PAYLOAD["url"]
 
-    def test_deletes_by_source_url_before_upsert(self):
-        """Idempotency path: we delete by the indexed metadata.source_url
-        filter before upserting (since metadata.source_id isn't indexed)."""
+    def test_deletes_by_source_id_before_upsert(self):
+        """Idempotency path: delete by metadata.source_id before upserting
+        so a repeat ingest fully replaces prior chunks."""
         handles = _install()
-        payload = {**BASE_PAYLOAD, "state_or_province": ["Wien"]}
 
         with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
 
         assert r.status_code == 200
         qdrant = handles["qdrant"]
         qdrant.delete_by_filter.assert_awaited()
-        # Any delete call uses the source_url key.
         for call in qdrant.delete_by_filter.await_args_list:
             flt = call.args[1]
-            assert flt["must"][0]["key"] == "metadata.source_url"
-            assert flt["must"][0]["match"]["value"] == payload["url"]
+            assert flt["must"][0]["key"] == "metadata.source_id"
+            assert flt["must"][0]["match"]["value"] == BASE_PAYLOAD["source_id"]
+            assert call.args[0] == BASE_PAYLOAD["collection_name"]
+
+    def test_missing_collection_name_rejected_by_pydantic(self):
+        _install()
+        payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "collection_name"}
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 422
+
+    def test_empty_collection_name_rejected_by_pydantic(self):
+        _install()
+        payload = {**BASE_PAYLOAD, "collection_name": ""}
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 422
 
     def test_whitespace_only_content_returns_validation_error_envelope(self):
         _install()
@@ -344,8 +319,6 @@ class TestEndpoint:
         with TestClient(app) as c:
             r = c.post("/api/v1/online/ingest/at", json=payload)
 
-        # Pydantic's min_length=1 only checks length, so the handler catches
-        # whitespace-only content and returns the error envelope.
         assert r.status_code == 200
         body = r.json()
         assert body["success"] is False
@@ -358,7 +331,6 @@ class TestEndpoint:
         with TestClient(app) as c:
             r = c.post("/api/v1/online/ingest/at", json=payload)
 
-        # Empty string hits pydantic's min_length=1 and 422s before the handler.
         assert r.status_code == 422
 
     def test_funding_extractor_called_with_at_country(self):
@@ -371,17 +343,16 @@ class TestEndpoint:
         assert kwargs["country"] == "AT"
 
     def test_response_metadata_counts(self):
-        handles = _install()
-        payload = {**BASE_PAYLOAD, "state_or_province": ["Tirol", "Wien"]}
+        _install()
 
         with TestClient(app) as c:
-            r = c.post("/api/v1/online/ingest/at", json=payload)
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
 
-        body = r.json()["data"]
-        # Two collections, N chunks each → vectors_stored is 2*N.
-        assert body["vectors_stored"] == 2 * body["chunks_created"]
-        assert body["content_type"] == ["funding", "sport"]
-        assert body["source_id"] == payload["source_id"]
+        data = r.json()["data"]
+        assert data["vectors_stored"] == data["chunks_created"]
+        assert data["content_type"] == ["funding", "sport"]
+        assert data["source_id"] == BASE_PAYLOAD["source_id"]
+        assert data["collection_name"] == BASE_PAYLOAD["collection_name"]
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -393,7 +364,7 @@ def test_embedder_failure_returns_error_envelope():
     from app.services.embedding.bge_m3_client import EmbeddingError
 
     async def _fail(_chunks):
-        raise EmbeddingError("OpenAI outage")
+        raise EmbeddingError("TEI outage")
 
     handles = _install()
     handles["embedder"].embed_batch = AsyncMock(side_effect=_fail)
@@ -416,9 +387,8 @@ def test_upsert_disk_full_mapped_to_error_code():
     handles = _install()
     handles["qdrant"].upsert_points = AsyncMock(side_effect=_upsert_disk_full)
 
-    payload = {**BASE_PAYLOAD, "state_or_province": ["Wien"]}
     with TestClient(app) as c:
-        r = c.post("/api/v1/online/ingest/at", json=payload)
+        r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
 
     assert r.status_code == 200
     body = r.json()

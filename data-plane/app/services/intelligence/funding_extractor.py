@@ -111,6 +111,10 @@ or null for nullable fields.
 Respond ONLY with valid JSON matching this exact schema:
 {{
   "title": "<title of the funding program>",
+  "program_name": "<official program name, if distinct from the title — otherwise empty string>",
+  "processing_office": "<name of the office/department that processes applications — empty string if unknown>",
+  "contract_email": "<contract/contact email address found in the document — empty string if none>",
+  "contract_phone": "<contract/contact phone number found in the document — empty string if none>",
   "country_code": "<ISO 3166-1 alpha-2 country code, e.g. AT, DE, RO>",
   "state_or_province": ["<official states/provinces in english lowercase — see constraint above. Multiple allowed. Empty list if unknown>"],
   "city": ["<city names in english lowercase. Multiple allowed. Empty list if unknown>"],
@@ -199,7 +203,7 @@ class FundingExtractor:
                 {"role": "user", "content": truncated},
             ],
             temperature=0.0,
-            max_tokens=800,
+            max_tokens=1000,
             response_format={"type": "json_object"},
         )
 
@@ -225,6 +229,10 @@ class FundingExtractor:
 
         result = {
             "title": str(data.get("title", "")),
+            "program_name": str(data.get("program_name", "")),
+            "processing_office": str(data.get("processing_office", "")),
+            "contract_email": str(data.get("contract_email", "")),
+            "contract_phone": str(data.get("contract_phone", "")),
             "country_code": country_code,
             "state_or_province": states_raw,
             "city": [c.lower().strip() for c in _as_list(data.get("city", [])) if c.strip()],

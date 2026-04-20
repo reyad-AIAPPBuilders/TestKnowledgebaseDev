@@ -110,6 +110,14 @@ class ExternalSettings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
+    # TEI — AT-specific embedding endpoint used by POST /api/v1/online/ingest/at.
+    # OpenAI-compatible server exposing POST {TEI_EMBED_URL_AT}/v1/embeddings.
+    # API key is required. TEI_EMBED_MODEL_AT is optional — many TEI servers
+    # ignore the model field since each process serves a single model.
+    tei_embed_url_at: str = "https://embed.ki2.at"
+    tei_embed_api_key_at: str = ""
+    tei_embed_model_at: str = ""
+
     # LDAP
     ldap_url: str = ""
     ldap_bind_dn: str = ""

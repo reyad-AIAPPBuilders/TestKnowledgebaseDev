@@ -28,6 +28,7 @@ from app.services.discovery.smb_client import SMBClient
 from app.services.embedding.bge_gemma2_client import BGEGemma2Client
 from app.services.embedding.bge_m3_client import BGEM3Client
 from app.services.embedding.openai_client import OpenAIEmbedClient
+from app.services.embedding.tei_client_at import TEIEmbedClientAT
 from app.services.embedding.qdrant_service import QdrantService
 from app.services.ingest.ingest_service import IngestService
 from app.services.intelligence.chunker import Chunker
@@ -89,6 +90,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await openai_embedder.startup()
     app.state.openai_embedder = openai_embedder
 
+    tei_embedder_at = TEIEmbedClientAT()
+    await tei_embedder_at.startup()
+    app.state.tei_embedder_at = tei_embedder_at
+
     bge_gemma2_embedder = BGEGemma2Client()
     await bge_gemma2_embedder.startup()
     app.state.bge_gemma2_embedder = bge_gemma2_embedder
@@ -141,6 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await parser_svc.shutdown()
     await embedder.shutdown()
     await openai_embedder.shutdown()
+    await tei_embedder_at.shutdown()
     await bge_gemma2_embedder.shutdown()
     await contextual_enricher.shutdown()
     await qdrant.shutdown()
