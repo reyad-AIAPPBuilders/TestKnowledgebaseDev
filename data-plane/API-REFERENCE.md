@@ -1183,7 +1183,7 @@ curl -X POST "https://your-domain/api/v1/online/ingest/at" \
 | `state_or_province` | string[] | No | `null` | Override for stored `metadata.state_or_province` (english lowercase). |
 | `entities` | object | No | `null` | Structured entities from upstream scrape/parse. |
 | `metadata` | object | Yes | — | Same shape as `/online/ingest` metadata. At least one of `assistant_id` / `municipality_id` required. |
-| `chunking` | object | No | `null` | Override chunking strategy / max size / overlap. |
+| `chunking` | object | No | `null` | Override chunking strategy / max size / overlap. When omitted, the endpoint uses AT-specific defaults tuned for German funding pages: `max_chunk_size=1000`, `overlap=150`, `strategy="contextual"`. |
 
 No `country`, `assistant_type`, or `vector_config` fields — they're fixed by the endpoint.
 

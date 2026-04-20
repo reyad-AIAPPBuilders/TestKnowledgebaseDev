@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers.online.ingest_at import (
+    _AT_DEFAULT_CHUNK_OVERLAP,
+    _AT_DEFAULT_CHUNK_SIZE,
     _normalize_provinces,
     _point_id,
 )
@@ -433,6 +435,49 @@ class TestEndpoint:
 
         kwargs = handles["extractor"].extract.await_args.kwargs
         assert kwargs["country"] == "AT"
+
+    def test_default_chunking_uses_at_specific_constants(self):
+        """When body.chunking is omitted, the router must pass the AT-specific
+        defaults (1000 / 150) to the chunker — not the global 512 / 50."""
+        handles = _install()
+
+        real_chunk = handles["chunker"].chunk
+        captured: dict = {}
+
+        def _spy(*args, **kwargs):
+            captured.update(kwargs)
+            return real_chunk(*args, **kwargs)
+
+        handles["chunker"].chunk = _spy
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200, r.text
+        assert captured.get("max_chunk_size") == _AT_DEFAULT_CHUNK_SIZE == 1000
+        assert captured.get("overlap") == _AT_DEFAULT_CHUNK_OVERLAP == 150
+        assert captured.get("strategy") == "recursive"  # contextual uses recursive as base
+
+    def test_body_chunking_overrides_at_defaults(self):
+        """Explicit body.chunking still wins over the AT defaults."""
+        handles = _install()
+
+        real_chunk = handles["chunker"].chunk
+        captured: dict = {}
+
+        def _spy(*args, **kwargs):
+            captured.update(kwargs)
+            return real_chunk(*args, **kwargs)
+
+        handles["chunker"].chunk = _spy
+
+        payload = {**BASE_PAYLOAD, "chunking": {"strategy": "recursive", "max_chunk_size": 256, "overlap": 32}}
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 200, r.text
+        assert captured.get("max_chunk_size") == 256
+        assert captured.get("overlap") == 32
 
     def test_response_metadata_counts(self):
         _install()

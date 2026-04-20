@@ -40,7 +40,6 @@ import time
 
 from fastapi import APIRouter, Request
 
-from app.config import settings
 from app.models.common import ErrorCode, ResponseEnvelope
 from app.models.online.ingest_at import OnlineIngestATData, OnlineIngestATRequest
 from app.services.embedding.bge_m3_client import EmbeddingError
@@ -53,6 +52,17 @@ router = APIRouter(prefix="/api/v1/online", tags=["Online - Ingestion Pipeline (
 
 _AT_COUNTRY = "AT"
 _AT_ASSISTANT_TYPE = "funding"
+
+# Chunking tuned for German-language funding pages (gv.at / municipal sites).
+# Those pages organize information into short sections — Fristen,
+# Eligibility, Förderhöhe, Kontakt — and ~1000 chars usually captures one
+# section whole. German averages ~5 chars/token → ~200 tokens per chunk,
+# which sits comfortably inside BGE-M3's high-quality zone (100–512 tokens).
+# Contextual enrichment adds ~150–300 chars of prefix, so the final embed
+# length lands ~260 tokens — still ideal. Overlap of 150 catches single
+# facts (deadlines, amounts) that straddle paragraph breaks.
+_AT_DEFAULT_CHUNK_SIZE = 1000
+_AT_DEFAULT_CHUNK_OVERLAP = 150
 
 
 async def _safe_extract_funding(
@@ -280,8 +290,8 @@ async def ingest_online_at(
     chunk_result = chunker.chunk(
         text=body.content,
         strategy=base_strategy,
-        max_chunk_size=chunking.max_chunk_size if chunking else settings.default_chunk_size,
-        overlap=(chunking.overlap if chunking and chunking.overlap is not None else settings.default_chunk_overlap),
+        max_chunk_size=chunking.max_chunk_size if chunking else _AT_DEFAULT_CHUNK_SIZE,
+        overlap=(chunking.overlap if chunking and chunking.overlap is not None else _AT_DEFAULT_CHUNK_OVERLAP),
     )
     if not chunk_result.chunks:
         return ResponseEnvelope(
