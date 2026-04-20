@@ -120,7 +120,7 @@ class ExternalSettings(BaseSettings):
     # headers so Cloudflare lets the request through without the login redirect.
     tei_embed_url_at: str = "https://embed.ki2.at"
     tei_embed_api_key_at: str = ""
-    tei_embed_model_at: str = ""
+    tei_embed_model_at: str = "BAAI/bge-m3"
     tei_cf_access_client_id_at: str = ""
     tei_cf_access_client_secret_at: str = ""
 
