@@ -267,6 +267,29 @@ class TestEndpoint:
         for p in _all_points(handles["qdrant"]):
             assert "region" not in p["payload"]["metadata"]
 
+    def test_source_name_stored_in_metadata_when_provided(self):
+        handles = _install()
+        payload = {**BASE_PAYLOAD, "source_name": "Land Salzburg — Sportförderung"}
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=payload)
+
+        assert r.status_code == 200, r.text
+        points = _all_points(handles["qdrant"])
+        assert points
+        for p in points:
+            assert p["payload"]["metadata"]["source_name"] == "Land Salzburg — Sportförderung"
+
+    def test_source_name_omitted_leaves_metadata_clean(self):
+        handles = _install()
+
+        with TestClient(app) as c:
+            r = c.post("/api/v1/online/ingest/at", json=BASE_PAYLOAD)
+
+        assert r.status_code == 200
+        for p in _all_points(handles["qdrant"]):
+            assert "source_name" not in p["payload"]["metadata"]
+
     def test_program_name_falls_back_to_title_when_extractor_missing(self):
         """When the extractor doesn't return a program_name, the stored
         metadata.program_name defaults to the title."""

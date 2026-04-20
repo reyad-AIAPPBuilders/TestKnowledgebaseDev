@@ -333,6 +333,8 @@ async def ingest_online_at(
     base_metadata = body.metadata.model_dump()
     base_metadata["source_url"] = body.url
     base_metadata["assistant_type"] = _AT_ASSISTANT_TYPE
+    if body.source_name:
+        base_metadata["source_name"] = body.source_name
     # Funding-extractor output merged under request metadata so request wins.
     merged_metadata = {**extracted, **base_metadata} if extracted else base_metadata
 

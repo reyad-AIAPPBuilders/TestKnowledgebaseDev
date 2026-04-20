@@ -27,6 +27,7 @@ class OnlineIngestATRequest(BaseModel):
     source_id: str = Field(..., description="Unique document ID. Prior points with the same source_id are deleted before the fresh upsert.")
     collection_name: str = Field(..., min_length=1, description="Target collection on the AT Qdrant instance. Auto-created with the AT legacy schema on first use; reused thereafter.")
     url: str = Field(..., description="Source URL (stored as metadata.source_url).")
+    source_name: str | None = Field(None, description="Optional human-readable label for the source (e.g. 'Land Salzburg — Sportförderung'). Stored verbatim as metadata.source_name when supplied.")
     content: str = Field(..., min_length=1, description="Parsed/scraped text content from /online/scrape or /online/document-parse.")
     content_type: list[str] = Field(..., min_length=1, description="Content categories, e.g. ['funding','sport']. Obtained upstream from /online/scrape or /online/document-parse.")
     entities: ExtractedEntities | None = Field(None, description="Optional structured entities (dates, deadlines, amounts, contacts, departments) from the upstream scrape/parse call.")
@@ -50,6 +51,7 @@ class OnlineIngestATRequest(BaseModel):
                     "source_id": "web_salzburg_sport_001",
                     "collection_name": "foerder_at",
                     "url": "https://www.salzburg.gv.at/sport-foerderung",
+                    "source_name": "Land Salzburg — Sportförderung",
                     "content": "Sportförderung Salzburg\n\n...",
                     "content_type": ["funding", "sport"],
                     "language": "de",
